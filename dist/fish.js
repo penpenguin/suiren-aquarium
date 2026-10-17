@@ -1,11 +1,12 @@
 /**
  * A procedural, translucent halfmoon betta, rendered in Canvas 2D.
  *
- * drawBetta(context, { x, y, size = 1, heading = 0, turn, tilt, speed = 18 }, seconds, detail = 1)
+ * drawBetta(context, { x, y, size = 1, heading = 0, turn, tilt, speed = 18, light = 1 }, seconds, detail = 1)
  * `turn` is a continuous side profile: -1 faces left, +1 faces right, 0 faces the viewer.
  * `tilt`, when supplied, is a screen-space angle in radians. Otherwise heading determines tilt.
  * At size 1 the complete fish occupies approximately x [-172, 64], y [-94, 106].
- * No external assets, timers, or animation loops. The small, static body texture is cached.
+ * `light` is daylight strength from 0 to 1. Cached pigment and body textures need no assets.
+ * No external assets, timers, or animation loops.
  */
 
 const PI = Math.PI;
@@ -15,8 +16,87 @@ const tailX = new Float32Array(TAIL_SEGMENTS + 1);
 const tailY = new Float32Array(TAIL_SEGMENTS + 1);
 const analX = new Float32Array(29);
 const analY = new Float32Array(29);
+const tailFolds = [3, 9, 15, 22, 28, 35, 40];
+const analFolds = [0.11, 0.26, 0.43, 0.59, 0.75, 0.92];
 let bodyTexture;
+let nightBodyTexture;
+let pigmentTexture;
 let textureAttempted = false;
+
+function randomAt(index) {
+  const value = Math.sin(index * 127.173 + 51.379) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function smallCanvas(width, height) {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(width, height);
+  if (typeof document === 'undefined') return undefined;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+// All pigment granulation is made once; no noise images or per-pixel animation.
+function getPigmentTexture() {
+  if (pigmentTexture) return pigmentTexture;
+  const canvas = smallCanvas(384, 384);
+  const ctx = canvas?.getContext('2d');
+  if (!ctx) return undefined;
+  for (let i = 0; i < 7600; i++) {
+    const x = randomAt(i * 3 + 1) * 384;
+    const y = randomAt(i * 3 + 2) * 384;
+    const value = randomAt(i * 3 + 3);
+    ctx.fillStyle = value > 0.48
+      ? `rgba(151,210,202,${0.035 + value * 0.07})`
+      : `rgba(3,24,53,${0.065 + value * 0.09})`;
+    ctx.fillRect(x, y, 0.7 + value * 1.1, 0.45 + value * 0.7);
+  }
+  pigmentTexture = canvas;
+  return canvas;
+}
+
+function paintFinGrain(ctx, x, y, width, height) {
+  const texture = getPigmentTexture();
+  if (!texture) return;
+  ctx.save();
+  ctx.globalAlpha *= 0.68;
+  ctx.drawImage(texture, x, y, width, height);
+  ctx.restore();
+}
+
+// A few softly shaded folds describe tissue volume; the fine rays are secondary.
+function softFold(ctx, x, y, ax, ay, bx, by, ex, ey, width, strength, pearl = false) {
+  const shade = ctx.createLinearGradient(x, y, ex, ey);
+  shade.addColorStop(0, 'rgba(3,28,53,0)');
+  shade.addColorStop(0.4, `rgba(4,27,58,${strength * 0.58})`);
+  shade.addColorStop(0.79, `rgba(8,31,59,${strength})`);
+  shade.addColorStop(1, 'rgba(8,36,66,0)');
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.bezierCurveTo(ax, ay, bx, by, ex, ey);
+  ctx.strokeStyle = shade;
+  ctx.lineWidth = width;
+  ctx.stroke();
+  ctx.lineWidth = width * 0.47;
+  const alpha = ctx.globalAlpha;
+  ctx.globalAlpha = alpha * 0.53;
+  ctx.stroke();
+  ctx.globalAlpha = alpha;
+  if (pearl) {
+    ctx.beginPath();
+    ctx.moveTo(x - 1.1, y);
+    ctx.bezierCurveTo(ax - 1.5, ay - 1.2, bx - 2.8, by - 1.3, ex, ey);
+    const ridge = ctx.createLinearGradient(x, y, ex, ey);
+    ridge.addColorStop(0, 'rgba(116,199,188,0)');
+    ridge.addColorStop(0.58, `rgba(125,196,197,${strength * 0.66})`);
+    ridge.addColorStop(0.86, `rgba(163,209,202,${strength * 0.35})`);
+    ridge.addColorStop(1, 'rgba(181,217,213,0)');
+    ctx.strokeStyle = ridge;
+    ctx.lineWidth = width * 0.43;
+    ctx.stroke();
+  }
+}
 
 function bodyPath(ctx) {
   ctx.beginPath();
@@ -35,51 +115,77 @@ function paintBody(ctx) {
   ctx.save();
   bodyPath(ctx);
   const body = ctx.createLinearGradient(-5, -27, 12, 27);
-  body.addColorStop(0, '#123e49');
-  body.addColorStop(0.23, '#176879');
-  body.addColorStop(0.43, '#469c9c');
-  body.addColorStop(0.59, '#287985');
-  body.addColorStop(0.8, '#174b64');
-  body.addColorStop(1, '#123049');
+  body.addColorStop(0, '#112c44');
+  body.addColorStop(0.18, '#185872');
+  body.addColorStop(0.37, '#388c91');
+  body.addColorStop(0.53, '#307e96');
+  body.addColorStop(0.72, '#194b77');
+  body.addColorStop(0.89, '#132d50');
+  body.addColorStop(1, '#111f39');
   ctx.fillStyle = body;
   ctx.fill();
   ctx.clip();
 
   const shimmer = ctx.createRadialGradient(9, -12, 1, 3, -10, 53);
-  shimmer.addColorStop(0, 'rgba(150,222,190,0.44)');
-  shimmer.addColorStop(0.38, 'rgba(91,196,184,0.14)');
+  shimmer.addColorStop(0, 'rgba(160,213,186,0.38)');
+  shimmer.addColorStop(0.38, 'rgba(100,188,179,0.15)');
   shimmer.addColorStop(1, 'rgba(38,94,129,0)');
   ctx.fillStyle = shimmer;
   ctx.fillRect(-59, -33, 126, 64);
 
-  // Small overlapping crescents catch the light without looking like a pattern of dots.
-  for (let row = 0; row < 11; row++) {
-    const y = -23 + row * 4.25;
-    for (let column = 0; column < 14; column++) {
-      const x = -45 + column * 6.05 + (row % 2) * 3.025;
-      if (x > 36) continue;
-      const noise = Math.sin(row * 31.731 + column * 17.127) * 0.5 + 0.5;
-      const light = (1 - Math.abs(y + 6) / 41) * (0.12 + noise * 0.18);
+  // Irregular scales follow the round flank instead of reading as a stamped grid.
+  for (let row = 0; row < 15; row++) {
+    const baseY = -24 + row * 3.32;
+    for (let column = 0; column < 21; column++) {
+      const index = row * 43 + column;
+      const noise = randomAt(index);
+      const x = -49 + column * 4.25 + (row % 2) * 2.125 + (noise - 0.5) * 1.1;
+      if (x > 37) continue;
+      const y = baseY + Math.sin((x + 49) * 0.022) * (baseY + 4) * 0.08 + (randomAt(index + 1817) - 0.5) * 0.8;
+      const light = Math.max(0, 1 - Math.abs(y + 8) / 31) * (0.055 + noise * 0.16);
+      const width = 2.7 + noise * 0.9;
+      const height = 1.35 + randomAt(index + 431) * 0.6;
       ctx.beginPath();
-      ctx.moveTo(x + 1.4, y - 1.65);
-      ctx.bezierCurveTo(x + 5.6, y - 1.4, x + 5.5, y + 1.35, x + 1.4, y + 2.25);
-      ctx.strokeStyle = `rgba(2,39,62,${0.13 + noise * 0.12})`;
-      ctx.lineWidth = 0.63;
+      ctx.moveTo(x + 0.6, y - height);
+      ctx.bezierCurveTo(x + width + 0.8, y - height, x + width + 1.2, y + height * 0.52, x + 0.5, y + height);
+      ctx.strokeStyle = `rgba(3,33,57,${0.065 + noise * 0.17})`;
+      ctx.lineWidth = 0.34 + noise * 0.16;
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(x + 1.15, y - 1.95);
-      ctx.quadraticCurveTo(x + 4.7, y - 1.5, x + 4.05, y + 0.2);
-      ctx.strokeStyle = `rgba(155,224,191,${light})`;
-      ctx.lineWidth = 0.58;
+      ctx.moveTo(x + 0.8, y - height - 0.12);
+      ctx.quadraticCurveTo(x + width + 0.9, y - height + 0.1, x + width + 0.4, y + height * 0.21);
+      ctx.strokeStyle = noise > 0.55 ? `rgba(161,214,187,${light})` : `rgba(112,193,218,${light})`;
+      ctx.lineWidth = 0.29 + noise * 0.16;
       ctx.stroke();
-      if (noise > 0.66 && y < 11) {
+      if (noise > 0.37 && y < 16) {
         ctx.beginPath();
-        ctx.ellipse(x + 2.1, y - 0.6, 1.65, 0.78, -0.2, 0, PI * 2);
-        ctx.fillStyle = `rgba(89,179,184,${0.09 + noise * 0.1})`;
+        ctx.ellipse(x + width * 0.6, y - 0.4, width * 0.66, height * 0.47, -0.16 + noise * 0.22, 0, PI * 2);
+        ctx.fillStyle = noise > 0.8 ? `rgba(181,195,179,${light * 0.71})` : `rgba(80,159,181,${light * 0.9})`;
         ctx.fill();
       }
     }
   }
+
+  for (let i = 0; i < 950; i++) {
+    const x = -55 + randomAt(i * 7 + 191) * 112;
+    const y = -26 + randomAt(i * 7 + 192) * 53;
+    const value = randomAt(i * 7 + 193);
+    ctx.fillStyle = value > 0.55 ? 'rgba(150,201,190,0.09)' : 'rgba(5,25,48,0.11)';
+    ctx.fillRect(x, y, 0.16 + value * 0.48, 0.12 + value * 0.3);
+  }
+
+  const belly = ctx.createLinearGradient(0, 6, 1, 26);
+  belly.addColorStop(0, 'rgba(5,25,51,0)');
+  belly.addColorStop(0.58, 'rgba(7,24,48,0.1)');
+  belly.addColorStop(1, 'rgba(5,18,39,0.48)');
+  ctx.fillStyle = belly;
+  ctx.fillRect(-59, 6, 124, 24);
+  const pearl = ctx.createRadialGradient(5, -15, 0, 3, -12, 34);
+  pearl.addColorStop(0, 'rgba(169,211,180,0.11)');
+  pearl.addColorStop(0.55, 'rgba(113,182,179,0.045)');
+  pearl.addColorStop(1, 'rgba(71,142,161,0)');
+  ctx.fillStyle = pearl;
+  ctx.fillRect(-42, -30, 85, 50);
 
   // The relatively dark head is important to the natural metallic coloration.
   const head = ctx.createRadialGradient(57, -4, 4, 51, -4, 36);
@@ -92,7 +198,7 @@ function paintBody(ctx) {
 
   const gillLight = ctx.createLinearGradient(19, 0, 35, 0);
   gillLight.addColorStop(0, 'rgba(67,164,164,0)');
-  gillLight.addColorStop(0.59, 'rgba(75,177,169,0.48)');
+  gillLight.addColorStop(0.59, 'rgba(92,170,167,0.36)');
   gillLight.addColorStop(1, 'rgba(25,78,94,0)');
   ctx.fillStyle = gillLight;
   ctx.beginPath();
@@ -110,15 +216,15 @@ function paintBody(ctx) {
   ctx.beginPath();
   ctx.moveTo(30.4, -14.8);
   ctx.bezierCurveTo(23.8, -6.8, 23.7, 9, 29.3, 13.2);
-  ctx.strokeStyle = 'rgba(112,198,183,0.36)';
-  ctx.lineWidth = 0.55;
+  ctx.strokeStyle = 'rgba(119,183,172,0.28)';
+  ctx.lineWidth = 0.45;
   ctx.stroke();
 
   ctx.beginPath();
   ctx.moveTo(-35, -15.5);
   ctx.bezierCurveTo(-8, -30.4, 24, -25.4, 43, -17.6);
-  ctx.strokeStyle = 'rgba(127,216,183,0.31)';
-  ctx.lineWidth = 0.72;
+  ctx.strokeStyle = 'rgba(152,207,182,0.23)';
+  ctx.lineWidth = 0.5;
   ctx.stroke();
 
   // Modest eye size, with a muted iris and a single wet highlight.
@@ -160,14 +266,7 @@ function getBodyTexture() {
   const resolution = 3;
   const width = 130 * resolution;
   const height = 68 * resolution;
-  let canvas;
-  if (typeof OffscreenCanvas !== 'undefined') {
-    canvas = new OffscreenCanvas(width, height);
-  } else if (typeof document !== 'undefined') {
-    canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-  }
+  const canvas = smallCanvas(width, height);
   if (!canvas) return undefined;
   const context = canvas.getContext('2d');
   if (!context) return undefined;
@@ -175,6 +274,15 @@ function getBodyTexture() {
   context.translate(61, 34);
   paintBody(context);
   bodyTexture = canvas;
+  const night = smallCanvas(width, height);
+  const nightContext = night?.getContext('2d');
+  if (nightContext) {
+    nightContext.drawImage(canvas, 0, 0);
+    nightContext.globalCompositeOperation = 'source-atop';
+    nightContext.fillStyle = 'rgba(5,16,42,0.28)';
+    nightContext.fillRect(0, 0, width, height);
+    nightBodyTexture = night;
+  }
   return canvas;
 }
 
@@ -185,7 +293,7 @@ function makeTail(phase, activity) {
     const scallop = Math.sin(u * 25.8 + phase * 0.45) * 2.2
       + Math.sin(u * 63.3 - phase * 0.78) * 1.1;
     const flutter = Math.sin(phase * 1.2 - u * 7.2) * (3.1 + activity * 1.35);
-    const radius = 106 + Math.sin(u * PI) * 4.5 + scallop;
+    const radius = 103 + Math.sin(u * PI * 1.16) * 7 + scallop;
     tailX[i] = -49 - Math.cos(angle) * radius + flutter * (0.3 + Math.sin(u * PI) * 0.7);
     tailY[i] = Math.sin(angle) * radius * 0.81 + Math.sin(phase - u * 3.8) * 4.7 + 2;
   }
@@ -208,22 +316,42 @@ function drawTail(ctx, phase, activity, detail) {
   makeTail(phase, activity);
   tailPath(ctx);
   const membrane = ctx.createLinearGradient(-47, 0, -169, 0);
-  membrane.addColorStop(0, 'rgba(11,70,96,0.91)');
-  membrane.addColorStop(0.3, 'rgba(21,117,146,0.77)');
-  membrane.addColorStop(0.73, 'rgba(38,148,172,0.66)');
-  membrane.addColorStop(1, 'rgba(70,147,182,0.38)');
+  membrane.addColorStop(0, 'rgba(10,52,79,0.93)');
+  membrane.addColorStop(0.28, 'rgba(20,88,132,0.82)');
+  membrane.addColorStop(0.59, 'rgba(30,116,147,0.73)');
+  membrane.addColorStop(0.86, 'rgba(53,138,154,0.58)');
+  membrane.addColorStop(1, 'rgba(96,168,181,0.26)');
   ctx.fillStyle = membrane;
   ctx.fill();
 
   ctx.save();
   ctx.clip();
   const wine = ctx.createRadialGradient(-85, 43, 4, -92, 35, 83);
-  wine.addColorStop(0, 'rgba(129,31,61,0.79)');
-  wine.addColorStop(0.45, 'rgba(116,38,82,0.53)');
-  wine.addColorStop(0.79, 'rgba(48,75,135,0.15)');
+  wine.addColorStop(0, 'rgba(114,26,65,0.76)');
+  wine.addColorStop(0.45, 'rgba(112,41,91,0.52)');
+  wine.addColorStop(0.79, 'rgba(63,69,128,0.19)');
   wine.addColorStop(1, 'rgba(25,111,147,0)');
   ctx.fillStyle = wine;
   ctx.fillRect(-174, -99, 135, 203);
+
+  const transmitted = ctx.createRadialGradient(-119, -43, 2, -119, -39, 68);
+  transmitted.addColorStop(0, 'rgba(123,187,184,0.24)');
+  transmitted.addColorStop(0.48, 'rgba(86,170,182,0.11)');
+  transmitted.addColorStop(1, 'rgba(61,126,167,0)');
+  ctx.fillStyle = transmitted;
+  ctx.fillRect(-177, -100, 139, 205);
+  paintFinGrain(ctx, -177, -101, 139, 202);
+
+  for (let n = 0; n < tailFolds.length; n++) {
+    const i = tailFolds[n];
+    const u = i / TAIL_SEGMENTS;
+    const x = tailX[i];
+    const y = tailY[i];
+    const bend = Math.sin(phase * 0.91 - u * 6.3) * 4.8;
+    const rootY = (u - 0.5) * 12;
+    softFold(ctx, -49, rootY, -79, y * 0.21 + bend, x + 29, y * 0.82 + bend,
+      x, y, 6 + randomAt(n + 41) * 6.4, 0.075 + randomAt(n + 93) * 0.07, n % 2 === 0);
+  }
 
   const step = detail < 0.7 ? 2 : 1;
   for (let i = 1; i < TAIL_SEGMENTS; i += step) {
@@ -234,35 +362,37 @@ function drawTail(ctx, phase, activity, detail) {
     const fold = Math.sin(i * 2.17 + 0.5) * 0.5 + 0.5;
     const bend = Math.sin(phase * 1.1 - u * 6.1) * 4
       + Math.sin(u * 23.5 - phase * 0.66) * 1.4;
-    // Broad shadows between rays give the very thin membrane a little folded volume.
     ctx.beginPath();
-    ctx.moveTo(-49, rootY);
-    ctx.bezierCurveTo(-79, rootY + y * 0.15 + bend, x + 26, y * 0.81 + bend, x, y);
-    ctx.strokeStyle = `rgba(4,48,77,${0.12 + fold * 0.12})`;
-    ctx.lineWidth = 1.45 + fold * 1.5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-50, rootY - 0.4);
+    ctx.moveTo(-52 - fold * 3.8, rootY - 0.4);
     ctx.bezierCurveTo(-81, rootY + y * 0.16 + bend - 0.6, x + 25, y * 0.82 + bend - 0.5, x - 0.15, y - 0.4);
     ctx.strokeStyle = u > 0.57 && u < 0.87
-      ? `rgba(211,121,147,${0.22 + fold * 0.15})`
-      : `rgba(128,212,218,${0.24 + fold * 0.16})`;
-    ctx.lineWidth = 0.4 + fold * 0.22;
+      ? `rgba(192,123,157,${0.075 + fold * 0.13})`
+      : `rgba(138,199,203,${0.085 + fold * 0.14})`;
+    ctx.lineWidth = 0.24 + fold * 0.25;
     ctx.stroke();
     if (detail > 0.8 && i % 2 === 0) {
       ctx.beginPath();
-      ctx.moveTo(x + 31, y * 0.72);
-      ctx.quadraticCurveTo(x + 15, y * 0.94 + bend, x, y);
-      ctx.strokeStyle = 'rgba(156,213,221,0.21)';
-      ctx.lineWidth = 0.4;
+      ctx.moveTo(x + 35 + fold * 5, y * (0.61 + fold * 0.07));
+      ctx.quadraticCurveTo(x + 13, y * 0.91 + bend, x - 0.6, y + 0.65);
+      ctx.strokeStyle = 'rgba(158,204,206,0.11)';
+      ctx.lineWidth = 0.23;
       ctx.stroke();
     }
   }
   ctx.restore();
-  tailPath(ctx);
-  ctx.strokeStyle = 'rgba(128,204,211,0.29)';
-  ctx.lineWidth = 0.6;
-  ctx.stroke();
+  // Only short pieces of the thin, wet edge catch pearl light.
+  for (let band = 0; band < 2; band++) {
+    const start = band === 0 ? 5 : 28;
+    const finish = band === 0 ? 12 : 33;
+    ctx.beginPath();
+    ctx.moveTo((tailX[start] + tailX[start - 1]) * 0.5, (tailY[start] + tailY[start - 1]) * 0.5);
+    for (let i = start; i < finish; i++) {
+      ctx.quadraticCurveTo(tailX[i], tailY[i], (tailX[i] + tailX[i + 1]) * 0.5, (tailY[i] + tailY[i + 1]) * 0.5);
+    }
+    ctx.strokeStyle = band === 0 ? 'rgba(169,206,196,0.16)' : 'rgba(119,187,198,0.11)';
+    ctx.lineWidth = 0.38;
+    ctx.stroke();
+  }
 }
 
 function dorsalTop(u, phase) {
@@ -289,15 +419,25 @@ function dorsalPath(ctx, phase) {
 function drawDorsal(ctx, phase, detail) {
   dorsalPath(ctx, phase);
   const fin = ctx.createLinearGradient(-16, -18, -51, -77);
-  fin.addColorStop(0, 'rgba(10,63,83,0.91)');
-  fin.addColorStop(0.44, 'rgba(24,124,137,0.78)');
-  fin.addColorStop(0.84, 'rgba(70,154,166,0.57)');
-  fin.addColorStop(1, 'rgba(64,135,157,0.24)');
+  fin.addColorStop(0, 'rgba(8,51,78,0.91)');
+  fin.addColorStop(0.39, 'rgba(24,95,126,0.83)');
+  fin.addColorStop(0.73, 'rgba(52,131,145,0.63)');
+  fin.addColorStop(1, 'rgba(102,166,171,0.27)');
   ctx.fillStyle = fin;
   ctx.fill();
   ctx.save();
   ctx.clip();
-  const count = detail < 0.7 ? 11 : 19;
+  paintFinGrain(ctx, -91, -84, 118, 77);
+  for (let i = 0; i < 5; i++) {
+    const u = (i + 0.76) / 5.57;
+    const endX = 20 - 104 * u;
+    const endY = dorsalTop(u, phase);
+    const startX = 20 - 63 * u;
+    const startY = -22 + Math.max(0, u - 0.3) * 19;
+    softFold(ctx, startX, startY, startX - 9, startY - 16, endX + 15, endY + 13,
+      endX, endY, 5.7 + randomAt(i + 53) * 4.1, 0.08 + randomAt(i + 73) * 0.065, i % 2 === 0);
+  }
+  const count = detail < 0.7 ? 14 : 26;
   for (let i = 1; i < count; i++) {
     const u = i / count;
     const endX = 20 - 104 * u;
@@ -309,18 +449,11 @@ function drawDorsal(ctx, phase, detail) {
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.bezierCurveTo(startX - 10, startY - 17, endX + 15 + bend, endY + 15, endX, endY);
-    ctx.strokeStyle = `rgba(2,47,65,${0.15 + fold * 0.11})`;
-    ctx.lineWidth = 1.7 + fold * 0.8;
-    ctx.stroke();
-    ctx.strokeStyle = `rgba(141,211,200,${0.24 + fold * 0.15})`;
-    ctx.lineWidth = 0.43 + fold * 0.17;
+    ctx.strokeStyle = `rgba(147,197,185,${0.085 + fold * 0.12})`;
+    ctx.lineWidth = 0.22 + fold * 0.22;
     ctx.stroke();
   }
   ctx.restore();
-  dorsalPath(ctx, phase);
-  ctx.strokeStyle = 'rgba(136,206,195,0.28)';
-  ctx.lineWidth = 0.65;
-  ctx.stroke();
 }
 
 function makeAnal(phase) {
@@ -349,39 +482,53 @@ function drawAnal(ctx, phase, detail) {
   makeAnal(phase);
   analPath(ctx);
   const fin = ctx.createLinearGradient(5, 15, -29, 94);
-  fin.addColorStop(0, 'rgba(12,70,93,0.94)');
-  fin.addColorStop(0.32, 'rgba(24,106,143,0.87)');
-  fin.addColorStop(0.58, 'rgba(85,57,111,0.78)');
-  fin.addColorStop(0.83, 'rgba(130,42,73,0.71)');
-  fin.addColorStop(1, 'rgba(60,115,160,0.48)');
+  fin.addColorStop(0, 'rgba(9,48,77,0.95)');
+  fin.addColorStop(0.31, 'rgba(24,84,130,0.85)');
+  fin.addColorStop(0.57, 'rgba(70,51,103,0.79)');
+  fin.addColorStop(0.82, 'rgba(116,36,72,0.71)');
+  fin.addColorStop(1, 'rgba(86,123,157,0.41)');
   ctx.fillStyle = fin;
   ctx.fill();
   ctx.save();
   ctx.clip();
+  paintFinGrain(ctx, -110, 10, 155, 92);
+  const transmitted = ctx.createRadialGradient(-57, 63, 1, -52, 65, 46);
+  transmitted.addColorStop(0, 'rgba(117,135,170,0.12)');
+  transmitted.addColorStop(1, 'rgba(100,103,153,0)');
+  ctx.fillStyle = transmitted;
+  ctx.fillRect(-113, 14, 155, 88);
+  for (let i = 0; i < analFolds.length; i++) {
+    const u = analFolds[i];
+    const index = Math.round(u * 28);
+    const startX = 34 - 81 * u;
+    const startY = 18 - u * 9 + Math.sin(u * PI) * 4;
+    const bend = Math.sin(phase - u * 5) * 4;
+    softFold(ctx, startX, startY, startX - 9, startY + 22, analX[index] + 20 + bend,
+      analY[index] - 13, analX[index], analY[index], 6.6 + randomAt(i + 98) * 4.9,
+      0.095 + randomAt(i + 127) * 0.06, i % 2 === 0);
+  }
   const step = detail < 0.7 ? 2 : 1;
-  for (let i = 1; i < 28; i += step) {
-    const u = i / 28;
+  for (let i = 1; i < 35; i += step) {
+    const u = i / 35;
+    const index = u * 28;
+    const lower = Math.floor(index);
+    const fraction = index - lower;
+    const endX = analX[lower] + (analX[lower + 1] - analX[lower]) * fraction;
+    const endY = analY[lower] + (analY[lower + 1] - analY[lower]) * fraction;
     const startX = 34 - 81 * u;
     const startY = 18 - u * 9 + Math.sin(u * PI) * 4;
     const fold = Math.sin(i * 2.49 + 0.4) * 0.5 + 0.5;
     const bend = Math.sin(phase - u * 5) * 3 + Math.sin(u * 19.7 + phase * 0.8) * 1.6;
     ctx.beginPath();
     ctx.moveTo(startX, startY);
-    ctx.bezierCurveTo(startX - 10, startY + 22, analX[i] + 19 + bend, analY[i] - 13, analX[i], analY[i]);
-    ctx.strokeStyle = `rgba(7,41,73,${0.15 + fold * 0.11})`;
-    ctx.lineWidth = 1.8 + fold * 0.85;
-    ctx.stroke();
+    ctx.bezierCurveTo(startX - 10, startY + 22, endX + 19 + bend, endY - 13, endX, endY);
     ctx.strokeStyle = u < 0.62
-      ? `rgba(195,137,163,${0.24 + fold * 0.14})`
-      : `rgba(127,198,209,${0.23 + fold * 0.14})`;
-    ctx.lineWidth = 0.4 + fold * 0.2;
+      ? `rgba(188,131,162,${0.075 + fold * 0.13})`
+      : `rgba(137,188,200,${0.08 + fold * 0.12})`;
+    ctx.lineWidth = 0.23 + fold * 0.23;
     ctx.stroke();
   }
   ctx.restore();
-  analPath(ctx);
-  ctx.strokeStyle = 'rgba(125,187,201,0.31)';
-  ctx.lineWidth = 0.57;
-  ctx.stroke();
 }
 
 function drawVentral(ctx, phase, far) {
@@ -407,8 +554,8 @@ function drawVentral(ctx, phase, far) {
   ctx.beginPath();
   ctx.moveTo(originX, originY + 4);
   ctx.bezierCurveTo(originX - 5, originY + 34, endX + 9, endY - 13, endX, endY);
-  ctx.strokeStyle = 'rgba(198,179,182,0.41)';
-  ctx.lineWidth = 0.65;
+  ctx.strokeStyle = 'rgba(181,178,184,0.27)';
+  ctx.lineWidth = 0.44;
   ctx.stroke();
 }
 
@@ -441,7 +588,7 @@ function drawPectoral(ctx, phase, far = false) {
   ctx.restore();
 }
 
-function drawFrontalBody(ctx, turn) {
+function drawFrontalBody(ctx, turn, light) {
   const amount = clamp((0.57 - Math.abs(turn)) / 0.57, 0, 1);
   if (amount <= 0) return;
   ctx.save();
@@ -457,6 +604,10 @@ function drawFrontalBody(ctx, turn) {
   ctx.ellipse(center, -0.5, width, 21.3, 0, 0, PI * 2);
   ctx.fillStyle = gradient;
   ctx.fill();
+  if (light < 1) {
+    ctx.fillStyle = `rgba(5,16,42,${(1 - light) * 0.28})`;
+    ctx.fill();
+  }
   ctx.fillStyle = 'rgba(4,19,29,0.87)';
   for (const side of [-1, 1]) {
     ctx.beginPath();
@@ -476,6 +627,7 @@ export function drawBetta(ctx, fish, time, detail = 1) {
   const size = Math.max(0.01, fish.size ?? 1);
   const heading = fish.heading ?? 0;
   const turn = clamp(fish.turn ?? Math.cos(heading), -1, 1);
+  const light = clamp(fish.light ?? 1, 0, 1);
   let tilt = fish.tilt;
   if (tilt === undefined) {
     tilt = heading - (Math.cos(heading) < 0 ? PI : 0);
@@ -495,32 +647,49 @@ export function drawBetta(ctx, fish, time, detail = 1) {
 
   ctx.save();
   ctx.scale(turn, 1 - (1 - Math.abs(turn)) * 0.035);
+  ctx.save();
+  ctx.globalAlpha *= 0.72 + light * 0.28;
   drawPectoral(ctx, phase, true);
   drawVentral(ctx, phase, true);
   drawTail(ctx, phase, activity, detail);
   drawDorsal(ctx, phase, detail);
   drawAnal(ctx, phase, detail);
+  ctx.restore();
 
   const texture = getBodyTexture();
-  if (texture) ctx.drawImage(texture, -61, -34, 130, 68);
-  else paintBody(ctx);
+  if (texture) {
+    if (light >= 0.999 || !nightBodyTexture) {
+      ctx.drawImage(texture, -61, -34, 130, 68);
+    } else {
+      ctx.drawImage(nightBodyTexture, -61, -34, 130, 68);
+      if (light > 0.001) {
+        ctx.save();
+        ctx.globalAlpha *= light;
+        ctx.drawImage(texture, -61, -34, 130, 68);
+        ctx.restore();
+      }
+    }
+  } else paintBody(ctx);
 
   // A quiet moving specular wash provides life to the cached metallic scale texture.
   ctx.save();
   bodyPath(ctx);
   ctx.clip();
   const glint = ctx.createLinearGradient(-43, -19, 44, 10);
-  const brightness = 0.045 + (Math.sin(phase * 0.51) + 1) * 0.018;
+  const brightness = (0.038 + (Math.sin(phase * 0.51) + 1) * 0.016) * (0.52 + light * 0.48);
   glint.addColorStop(0, 'rgba(98,191,205,0)');
   glint.addColorStop(0.44, `rgba(179,228,199,${brightness})`);
   glint.addColorStop(1, 'rgba(86,154,181,0)');
   ctx.fillStyle = glint;
   ctx.fillRect(-58, -31, 121, 60);
   ctx.restore();
+  ctx.save();
+  ctx.globalAlpha *= 0.72 + light * 0.28;
   drawVentral(ctx, phase, false);
   drawPectoral(ctx, phase, false);
   ctx.restore();
-  drawFrontalBody(ctx, turn);
+  ctx.restore();
+  drawFrontalBody(ctx, turn, light);
   ctx.restore();
 }
 

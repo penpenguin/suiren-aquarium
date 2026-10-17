@@ -1,1 +1,7 @@
-{"name":"suiren-aquarium","version":"1.0.0","private":true,"type":"module","description":"A lightweight, procedural Canvas 2D betta aquarium. No runtime dependencies."}
+{
+  "name": "suiren-aquarium",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An immersive, illustrated Canvas 2D betta aquarium with a local-clock day/night cycle. No runtime dependencies."
+}

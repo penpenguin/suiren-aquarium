@@ -1,7 +1,7 @@
 /**
  * A small, deterministic botanical foreground for a Canvas 2D aquarium.
  * All coordinates are CSS pixels; the caller owns the device-pixel transform.
- * Hardscape is rendered once. Only 46 plant stems move on subsequent frames.
+ * Hardscape and textured foliage are cached; a bounded set of plants moves.
  */
 export function createAquascape(width, height, dpr = 1) {
   const W = Math.max(1, width);
@@ -20,9 +20,10 @@ export function createAquascape(width, height, dpr = 1) {
   const paint = surface.getContext('2d', { alpha: true });
   paint.scale(ratio, ratio);
 
-  // A shallow, imperfect bank; the central clearing stays low and open.
-  const ground = x => H * (0.902 - 0.027 * Math.exp(-Math.pow((x / W - 0.13) / 0.19, 2))
-    - 0.037 * Math.exp(-Math.pow((x / W - 0.9) / 0.16, 2)) + 0.006 * Math.sin(x / W * 11));
+  // Asymmetric planted banks fall into a quiet, open central clearing.
+  const ground = x => H * (0.947 - 0.148 * Math.exp(-Math.pow((x / W - 0.065) / 0.195, 2))
+    - 0.115 * Math.exp(-Math.pow((x / W - 0.95) / 0.172, 2))
+    + 0.006 * Math.sin(x / W * 19) + 0.003 * Math.sin(x / W * 47));
 
   function roundedPath(ctx, points, close = true) {
     const n = points.length;
@@ -121,17 +122,17 @@ export function createAquascape(width, height, dpr = 1) {
       right.push([point[0] + dy / length * r, point[1] - dx / length * r]);
     }
     const shade = paint.createLinearGradient(p[0] - 20 * scale, p[1], p[6] + 20 * scale, p[7]);
-    shade.addColorStop(0, '#162322');
-    shade.addColorStop(0.28, '#3b3b2e');
-    shade.addColorStop(0.6, '#514733');
-    shade.addColorStop(1, '#282f26');
+    shade.addColorStop(0, '#112421');
+    shade.addColorStop(0.28, '#384537');
+    shade.addColorStop(0.6, '#756d4d');
+    shade.addColorStop(1, '#384434');
     paint.beginPath();
     roundedPath(paint, left.concat(right.reverse()));
     paint.fillStyle = shade;
     paint.fill();
     paint.save();
     paint.clip();
-    for (let strand = 0; strand < 6; strand++) {
+    for (let strand = 0; strand < 14; strand++) {
       const offset = between(-thickness * 0.7, thickness * 0.7) * scale;
       paint.beginPath();
       for (let j = 0; j <= 24; j++) {
@@ -142,8 +143,8 @@ export function createAquascape(width, height, dpr = 1) {
         const y = point[1] + 0.2 * offset;
         if (j === 0) paint.moveTo(x, y); else paint.lineTo(x, y);
       }
-      paint.strokeStyle = strand % 2 ? 'rgba(124,116,77,.16)' : 'rgba(8,24,20,.35)';
-      paint.lineWidth = between(0.7, 2) * scale;
+      paint.strokeStyle = strand % 2 ? 'rgba(161,147,99,.19)' : 'rgba(8,24,20,.4)';
+      paint.lineWidth = between(0.6, 2.8) * scale;
       paint.stroke();
     }
     paint.restore();
@@ -152,6 +153,7 @@ export function createAquascape(width, height, dpr = 1) {
   const blades = [];
   const stems = [];
   const front = [];
+  const rosettes = [];
 
   function addBlades(target, count, x1, x2, h1, h2, leafWidth, layer = 1) {
     for (let i = 0; i < count; i++) {
@@ -159,28 +161,28 @@ export function createAquascape(width, height, dpr = 1) {
       const base = ground(x) + between(0.003, 0.012) * H;
       target.push({ type: 'blade', x, y: base, height: between(h1, h2) * H,
         width: between(0.6, 1.2) * leafWidth * scale,
-        lean: between(-0.1, 0.095) * W,
-        wave: between(-0.03, 0.03) * W,
+        lean: between(-0.065, 0.07) * W,
+        wave: between(-0.024, 0.026) * W,
         phase: between(0, 6.28), speed: between(0.3, 0.48), layer,
         color: Math.floor(between(0, 3)) });
     }
   }
 
   // Tall rear ribbons define the silhouette without filling the swimming space.
-  addBlades(blades, 12, 0.025, 0.185, 0.39, 0.7, 9, 0);
-  addBlades(blades, 10, 0.835, 0.986, 0.36, 0.66, 10, 0);
-  addBlades(front, 5, -0.015, 0.08, 0.22, 0.4, 14, 2);
-  addBlades(front, 5, 0.915, 1.035, 0.18, 0.39, 14, 2);
+  addBlades(blades, 16, -0.01, 0.2, 0.31, 0.69, 10, 0);
+  addBlades(blades, 15, 0.827, 1.016, 0.3, 0.66, 11, 0);
+  addBlades(front, 4, -0.015, 0.063, 0.19, 0.35, 15, 2);
+  addBlades(front, 4, 0.951, 1.035, 0.18, 0.35, 16, 2);
 
   function addStem(x, heightFactor, lean, side) {
     const leaves = [];
-    const count = 5;
+    const count = 7;
     const stemHeight = heightFactor * H;
     for (let j = 0; j < count; j++) {
-      const t = 0.19 + j * 0.157;
+      const t = 0.11 + j * 0.124 + between(-0.025, 0.025);
       const direction = (j % 2 ? -1 : 1) * side;
-      leaves.push({ t, direction, length: between(0.035, 0.060) * W * (1 - t * 0.35),
-        width: between(7, 14) * scale * (1 - t * 0.22), angle: between(-0.58, -0.18),
+      leaves.push({ t, direction, length: between(52, 92) * scale * (1 - t * 0.38),
+        width: between(8, 19) * scale * (1 - t * 0.3), angle: between(-0.79, 0.05),
         color: Math.floor(between(0, 3)) });
     }
     stems.push({ type: 'stem', x: x * W, y: ground(x * W) + 0.006 * H,
@@ -188,11 +190,10 @@ export function createAquascape(width, height, dpr = 1) {
   }
   // A few forked leafy stems form a deliberately asymmetric planted composition.
   for (const spec of [
-    [0.069, 0.26, 0.023, 1], [0.107, 0.35, -0.018, 1], [0.146, 0.27, 0.02, 1],
-    [0.181, 0.30, 0.032, 1], [0.211, 0.22, -0.01, 1], [0.245, 0.15, -0.029, 1],
-    [0.756, 0.13, 0.005, -1], [0.798, 0.23, 0.007, -1], [0.843, 0.30, -0.03, -1],
-    [0.881, 0.23, 0.026, -1], [0.923, 0.30, 0.003, -1], [0.957, 0.19, -0.018, -1],
-    [0.12, 0.14, -0.016, 1], [0.881, 0.13, -0.018, -1],
+    [0.039, 0.31, 0.018, 1], [0.097, 0.44, -0.018, 1], [0.163, 0.32, 0.02, 1],
+    [0.209, 0.33, 0.032, 1], [0.265, 0.21, -0.033, 1],
+    [0.772, 0.18, 0.022, -1], [0.831, 0.33, -0.027, -1],
+    [0.892, 0.37, 0.013, -1], [0.951, 0.42, -0.018, -1],
   ]) addStem(...spec);
 
   function drawBlade(ctx, leaf, time, opacity = 1) {
@@ -230,54 +231,146 @@ export function createAquascape(width, height, dpr = 1) {
     ctx.globalAlpha = 1;
   }
 
-  function leafShape(ctx, x, y, length, breadth, direction, angle, color) {
+  function leafShape(ctx, x, y, length, breadth, direction, angle, color, kind = 'lance') {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(direction, 1);
     ctx.rotate(angle);
     const palette = [
-      ['#1b3b2a', '#547848', '#92a86c'],
-      ['#133b30', '#3d714d', '#79a073'],
-      ['#263f2a', '#657c48', '#a3ad70'],
+      ['#102e25', '#3c6942', '#89a95f'],
+      ['#0c302a', '#2f6045', '#74a575'],
+      ['#1c3626', '#5c7742', '#a4b575'],
     ][color];
-    const gradient = ctx.createLinearGradient(length * 0.3, breadth, length * 0.55, -breadth);
+    const curl = between(-0.32, 0.21) * breadth;
+    const phase = between(0, 6.28);
+    const spine = t => curl * Math.sin(t * Math.PI) - breadth * 0.18 * t;
+    const halfWidth = t => breadth * Math.sin(Math.PI * t) ** (kind === 'oval' ? 0.54 : 0.84)
+      * (1 + Math.sin(t * Math.PI * (kind === 'fern' ? 13 : 5) + phase) * (kind === 'fern' ? 0.065 : 0.029));
+    const edges = [];
+    for (let j = 0; j <= 18; j++) {
+      const t = j / 18;
+      edges.push([length * t, spine(t) - halfWidth(t) * (0.87 + t * 0.11)]);
+    }
+    for (let j = 18; j >= 0; j--) {
+      const t = j / 18;
+      edges.push([length * t, spine(t) + halfWidth(t) * (0.9 - t * 0.14)]);
+    }
+    const gradient = ctx.createLinearGradient(length * 0.35, breadth, length * 0.48, -breadth);
     gradient.addColorStop(0, palette[0]);
-    gradient.addColorStop(0.48, palette[1]);
+    gradient.addColorStop(0.47, palette[1]);
+    gradient.addColorStop(0.53, palette[0]);
+    gradient.addColorStop(0.61, palette[1]);
     gradient.addColorStop(1, palette[2]);
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(length * 0.27, -breadth * 0.9, length * 0.61, -breadth * 1.2, length, -breadth * 0.21);
-    ctx.bezierCurveTo(length * 0.58, breadth * 0.76, length * 0.2, breadth * 0.93, 0, 0);
+    roundedPath(ctx, edges);
     ctx.fillStyle = gradient;
     ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(length * 0.53, -breadth * 0.09, length * 0.97, -breadth * 0.22);
-    ctx.strokeStyle = 'rgba(182,199,130,.28)';
-    ctx.lineWidth = Math.max(0.45, scale * 0.72);
-    ctx.stroke();
-    // Restrained venation creates depth at desktop sizes without texture assets.
-    ctx.strokeStyle = 'rgba(17,48,28,.17)';
-    ctx.lineWidth = Math.max(0.35, scale * 0.55);
-    for (let j = 1; j <= 3; j++) {
-      const t = j * 0.19;
-      const lx = length * t;
+    ctx.save();
+    ctx.clip();
+    const transmitted = ctx.createRadialGradient(length * 0.53, -breadth * 0.35, 0,
+      length * 0.51, -breadth * 0.35, length * 0.62);
+    transmitted.addColorStop(0, 'rgba(148,175,95,.13)');
+    transmitted.addColorStop(0.65, 'rgba(43,91,49,.03)');
+    transmitted.addColorStop(1, 'rgba(0,20,15,.18)');
+    ctx.fillStyle = transmitted;
+    ctx.fillRect(0, -breadth * 1.5, length, breadth * 3);
+    // Very small uneven pigment marks make the cached surface painterly.
+    for (let j = 0; j < (kind === 'oval' ? 54 : 22); j++) {
+      const lx = between(0.08, 0.96) * length;
+      const ly = between(-0.95, 0.95) * breadth;
+      ctx.fillStyle = j % 3 ? 'rgba(5,38,24,.055)' : 'rgba(184,204,132,.065)';
       ctx.beginPath();
-      ctx.moveTo(lx, -breadth * t * 0.2);
-      ctx.quadraticCurveTo(lx + length * 0.06, -breadth * 0.25, lx + length * 0.12, -breadth * (0.62 - t * 0.2));
-      ctx.moveTo(lx, -breadth * t * 0.2);
-      ctx.quadraticCurveTo(lx + length * 0.055, breadth * 0.28, lx + length * 0.09, breadth * (0.52 - t * 0.2));
-      ctx.stroke();
+      ctx.ellipse(lx, ly, between(0.6, 2.8) * scale, between(0.3, 1.4) * scale,
+        between(-0.4, 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Veins curve at slightly different intervals and never form a rigid grid.
+    const veinCount = kind === 'oval' ? 7 : 5;
+    for (let j = 1; j <= veinCount; j++) {
+      const t = j / (veinCount + 2) + between(-0.018, 0.018);
+      const reach = Math.min(0.97, t + between(0.11, 0.19));
+      for (const side of [-1, 1]) {
+        const lx = length * t;
+        ctx.beginPath();
+        ctx.moveTo(lx, spine(t));
+        ctx.bezierCurveTo(lx + length * 0.035, spine(t) + side * halfWidth(t) * 0.13,
+          length * reach - length * 0.025, spine(reach) + side * halfWidth(reach) * 0.45,
+          length * reach, spine(reach) + side * halfWidth(reach) * 0.79);
+        ctx.strokeStyle = side === -1 ? 'rgba(160,187,112,.17)' : 'rgba(8,40,26,.24)';
+        ctx.lineWidth = Math.max(0.4, scale * (kind === 'oval' ? 0.84 : 0.62));
+        ctx.stroke();
+      }
     }
     ctx.restore();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(length * 0.5, curl * 1.85 - breadth * 0.09, length, spine(1));
+    ctx.strokeStyle = 'rgba(171,192,119,.35)';
+    ctx.lineWidth = Math.max(0.45, scale * 0.85);
+    ctx.stroke();
+    ctx.restore();
   }
+
+  function addRosette(x, lift, size, kind = 'oval', foreground = false, dim = false) {
+    const unit = scale * size;
+    const bw = Math.ceil(500 * unit);
+    const bh = Math.ceil(325 * unit);
+    const sprite = document.createElement('canvas');
+    sprite.width = Math.ceil(bw * ratio);
+    sprite.height = Math.ceil(bh * ratio);
+    const ctx = sprite.getContext('2d');
+    ctx.scale(ratio, ratio);
+    const rootX = bw * 0.5, rootY = bh - 23 * unit;
+    const leaves = [];
+    for (let j = 0; j < (kind === 'fern' ? 9 : 8); j++) {
+      const direction = -2.94 + j / (kind === 'fern' ? 8 : 7) * 2.78 + between(-0.22, 0.22);
+      leaves.push({ direction, stalk: between(17, 46) * unit,
+        length: between(kind === 'fern' ? 108 : 68, kind === 'fern' ? 186 : 117) * unit,
+        breadth: between(kind === 'fern' ? 10 : 21, kind === 'fern' ? 18 : 36) * unit,
+        color: Math.floor(between(0, 3)), curl: between(-0.19, 0.19) });
+    }
+    // Rear-facing leaves are painted first; low frontal leaves overlap their stems.
+    leaves.sort((a, b) => Math.sin(a.direction) - Math.sin(b.direction));
+    for (const leaf of leaves) {
+      const lx = rootX + Math.cos(leaf.direction) * leaf.stalk;
+      const ly = rootY + Math.sin(leaf.direction) * leaf.stalk;
+      ctx.strokeStyle = dim ? '#264b3c' : '#3f6442';
+      ctx.lineWidth = Math.max(0.8, 2.1 * unit);
+      ctx.beginPath();
+      ctx.moveTo(rootX, rootY);
+      ctx.quadraticCurveTo(rootX + (lx - rootX) * 0.43, rootY - leaf.stalk * 0.44, lx, ly);
+      ctx.stroke();
+      leafShape(ctx, lx, ly, leaf.length, leaf.breadth, 1,
+        leaf.direction + leaf.curl, leaf.color, kind);
+    }
+    rosettes.push({ x: x * W, y: ground(x * W) + lift * H, bw, bh, rootX, rootY,
+      sprite, foreground, dim, phase: between(0, 6.28), sway: kind === 'fern' ? 0.013 : 0.007 });
+  }
+
+  // Broad Anubias-like leaves overlap Java-fern silhouettes in low thickets.
+  for (const plant of [
+    [-0.012, 0.025, 1.08, 'fern', false, true],
+    [0.068, -0.022, 0.96, 'fern', false, true],
+    [0.151, -0.012, 1.03, 'fern', false, false],
+    [0.207, 0.012, 1.1, 'oval', false, false],
+    [0.267, 0.011, 0.74, 'fern', false, false],
+    [0.073, 0.028, 1.15, 'oval', false, false],
+    [0.142, 0.044, 0.87, 'oval', false, false],
+    [0.782, 0.014, 0.82, 'fern', false, false],
+    [0.843, -0.015, 1.04, 'fern', false, true],
+    [0.897, 0.0, 1.16, 'oval', false, false],
+    [0.963, -0.019, 1.17, 'fern', false, true],
+    [0.985, 0.044, 1.02, 'oval', false, false],
+    [0.025, 0.13, 0.87, 'oval', true, true],
+    [0.962, 0.12, 0.93, 'oval', true, true],
+  ]) addRosette(...plant);
 
   // Cache complete leafy sprigs. Gentle rotation about their root avoids redrawing
   // dozens of veins for every animation frame.
   for (const stem of stems) {
     const padding = 0.072 * W;
     const bw = Math.ceil(padding * 2 + Math.abs(stem.lean));
-    const bh = Math.ceil(stem.height + 0.08 * H);
+    const bh = Math.ceil(stem.height + 0.17 * H);
     const sprig = document.createElement('canvas');
     sprig.width = Math.ceil(bw * ratio);
     sprig.height = Math.ceil(bh * ratio);
@@ -306,11 +399,11 @@ export function createAquascape(width, height, dpr = 1) {
 
   // Hazy distant foliage is fixed and deliberately less saturated than the live
   // foreground, creating apparent depth through the blue-green water.
-  paint.globalAlpha = 0.22;
-  for (let j = 0; j < 24; j++) {
-    const x = (j < 12 ? between(-0.035, 0.255) : between(0.76, 1.035)) * W;
+  paint.globalAlpha = 0.25;
+  for (let j = 0; j < 48; j++) {
+    const x = (j < 24 ? between(-0.035, 0.262) : between(0.762, 1.035)) * W;
     const y = ground(x);
-    const h = between(0.11, 0.34) * H;
+    const h = between(0.17, 0.49) * H;
     paint.fillStyle = '#365e48';
     paint.beginPath();
     paint.moveTo(x, y);
@@ -320,15 +413,16 @@ export function createAquascape(width, height, dpr = 1) {
   }
   paint.globalAlpha = 1;
 
-  // Submerged driftwood: a long, low left hand branch and a smaller upright right.
-  branch([0.126, 0.912, 0.179, 0.76, 0.212, 0.594, 0.33, 0.522], 19);
-  branch([0.192, 0.743, 0.191, 0.627, 0.158, 0.575, 0.179, 0.475], 8);
-  branch([0.246, 0.616, 0.268, 0.527, 0.251, 0.48, 0.281, 0.438], 5);
-  branch([0.143, 0.858, 0.107, 0.767, 0.112, 0.658, 0.065, 0.597], 8);
-  branch([0.137, 0.884, 0.221, 0.875, 0.264, 0.867, 0.309, 0.804], 10);
-  branch([0.892, 0.917, 0.863, 0.813, 0.882, 0.68, 0.839, 0.573], 17);
-  branch([0.87, 0.824, 0.83, 0.774, 0.794, 0.803, 0.745, 0.741], 7);
-  branch([0.877, 0.746, 0.906, 0.665, 0.948, 0.655, 0.963, 0.606], 6);
+  // Long water-worn roots grow out of the planted banks; their exposed forks
+  // remain thick enough to read as aged wood, not thin diagrammatic twigs.
+  branch([0.078, 0.918, 0.163, 0.77, 0.214, 0.55, 0.337, 0.465], 34, 1.1);
+  branch([0.185, 0.701, 0.193, 0.565, 0.148, 0.499, 0.185, 0.36], 15, 0.8);
+  branch([0.257, 0.561, 0.269, 0.46, 0.249, 0.419, 0.292, 0.369], 10, 0.7);
+  branch([0.12, 0.836, 0.073, 0.714, 0.099, 0.615, 0.042, 0.547], 17, 1.0);
+  branch([0.121, 0.868, 0.206, 0.818, 0.265, 0.857, 0.335, 0.752], 20, 1.2);
+  branch([0.937, 0.948, 0.871, 0.817, 0.913, 0.649, 0.846, 0.494], 31, 1.2);
+  branch([0.9, 0.791, 0.848, 0.736, 0.804, 0.786, 0.75, 0.674], 15, 0.9);
+  branch([0.897, 0.693, 0.932, 0.615, 0.955, 0.646, 0.988, 0.515], 13, 0.8);
 
   // Underwater gravel bed with a lighter central channel and an irregular ridge.
   paint.beginPath();
@@ -339,28 +433,29 @@ export function createAquascape(width, height, dpr = 1) {
   }
   paint.lineTo(W, H);
   paint.closePath();
-  const bed = paint.createLinearGradient(0, H * 0.87, 0, H);
-  bed.addColorStop(0, '#454940');
-  bed.addColorStop(0.19, '#525447');
-  bed.addColorStop(0.52, '#484a3e');
-  bed.addColorStop(1, '#2a322b');
+  const bed = paint.createLinearGradient(0, H * 0.78, 0, H);
+  bed.addColorStop(0, '#273e34');
+  bed.addColorStop(0.29, '#454e3c');
+  bed.addColorStop(0.73, '#525143');
+  bed.addColorStop(1, '#222f28');
   paint.fillStyle = bed;
   paint.fill();
   paint.save();
   paint.clip();
-  const clearing = paint.createRadialGradient(W * 0.48, H * 0.91, 0,
-    W * 0.48, H * 0.91, W * 0.5);
-  clearing.addColorStop(0, 'rgba(187,178,136,.14)');
-  clearing.addColorStop(1, 'rgba(3,24,22,.13)');
+  const clearing = paint.createRadialGradient(W * 0.47, H * 0.96, 0,
+    W * 0.48, H * 0.93, W * 0.52);
+  clearing.addColorStop(0, 'rgba(193,184,145,.18)');
+  clearing.addColorStop(1, 'rgba(3,24,22,.2)');
   paint.fillStyle = clearing;
-  paint.fillRect(0, H * 0.86, W, H * 0.14);
+  paint.fillRect(0, H * 0.77, W, H * 0.23);
   const gravel = [];
-  for (let j = 0; j < 10500; j++) {
-    const x = random() * W, y = between(0.865, 1.02) * H;
-    const distance = Math.max(0, (y / H - 0.86) / 0.14);
-    const r = between(0.9 + distance * 0.5, 2.2 + distance * 4.2) * scale;
+  for (let j = 0; j < 15600; j++) {
+    const x = random() * W, y = between(0.773, 1.025) * H;
+    const distance = Math.max(0, Math.min(1.15, (y - ground(x)) / (H - ground(x))));
+    const r = between(0.65 + distance * 0.6, 1.9 + distance * 4.3) * scale;
     if (y < ground(x) - r) continue;
-    gravel.push({ x, y, r, tone: Math.floor(between(39, 96)), aspect: between(0.49, 0.83) });
+    const bankShade = (1 - Math.min(1, Math.abs(x / W - 0.48) / 0.48)) * 10;
+    gravel.push({ x, y, r, tone: Math.floor(between(32, 84) + bankShade), aspect: between(0.47, 0.84) });
   }
   // Draw rear pebbles first, making the overlapping near edge read as depth.
   gravel.sort((a, b) => a.y - b.y);
@@ -371,12 +466,13 @@ export function createAquascape(width, height, dpr = 1) {
 
   // Rounded, weathered stone masses ground the two planting islands.
   for (const rock of [
-    [0.052, 0.902, 40, 0.53, 57], [0.117, 0.898, 59, 0.61, 54],
-    [0.173, 0.904, 45, 0.42, 67], [0.206, 0.909, 23, 0.43, 66],
-    [0.248, 0.923, 20, 0.37, 77], [0.745, 0.923, 21, 0.42, 69],
-    [0.823, 0.904, 42, 0.47, 57], [0.88, 0.9, 66, 0.61, 52],
-    [0.944, 0.904, 43, 0.47, 66], [0.985, 0.929, 27, 0.48, 61],
-  ]) stone(paint, rock[0] * W, rock[1] * H, rock[2] * scale, rock[3], rock[4]);
+    [0.034, 0.014, 53, 0.57, 45], [0.106, 0.01, 82, 0.66, 44],
+    [0.169, 0.019, 71, 0.46, 54], [0.224, 0.018, 36, 0.51, 57],
+    [0.291, 0.016, 28, 0.4, 65], [0.733, 0.014, 24, 0.46, 60],
+    [0.798, 0.022, 52, 0.49, 47], [0.866, 0.022, 76, 0.62, 42],
+    [0.935, 0.018, 62, 0.5, 53], [0.992, 0.022, 44, 0.54, 45],
+  ]) stone(paint, rock[0] * W, ground(rock[0] * W) + rock[1] * H,
+    rock[2] * scale, rock[3], rock[4]);
 
   // Fine, irregular moss fibres settle into crevices around the planting islands.
   // Their tiny branching tips avoid the repeated U-shaped grass silhouette.
@@ -403,10 +499,21 @@ export function createAquascape(width, height, dpr = 1) {
   }
 
   let destroyed = false;
+  function drawRosette(ctx, plant, time, opacity = 1) {
+    ctx.save();
+    ctx.globalAlpha *= opacity;
+    ctx.translate(plant.x, plant.y);
+    ctx.rotate(Math.sin(time * 0.29 + plant.phase) * plant.sway);
+    ctx.drawImage(plant.sprite, -plant.rootX, -plant.rootY, plant.bw, plant.bh);
+    ctx.restore();
+  }
   return {
     drawBack(ctx, time = 0, quality = 1) {
       if (destroyed) return;
       ctx.save();
+      for (const plant of rosettes) {
+        if (!plant.foreground && plant.dim) drawRosette(ctx, plant, time, 0.62);
+      }
       for (let i = 0; i < blades.length; i++) {
         if (quality < 0.5 && i % 3 === 0) continue;
         drawBlade(ctx, blades[i], time, 0.83);
@@ -419,6 +526,9 @@ export function createAquascape(width, height, dpr = 1) {
         ctx.drawImage(stem.sprite, -stem.rootX, -stem.rootY, stem.bw, stem.bh);
         ctx.restore();
       }
+      for (const plant of rosettes) {
+        if (!plant.foreground && !plant.dim) drawRosette(ctx, plant, time, 0.96);
+      }
       ctx.restore();
     },
     drawFront(ctx, time = 0, quality = 1) {
@@ -428,12 +538,17 @@ export function createAquascape(width, height, dpr = 1) {
         if (quality < 0.5 && i % 4 === 0) continue;
         drawBlade(ctx, front[i], time, 0.95);
       }
+      for (const plant of rosettes) {
+        if (plant.foreground) drawRosette(ctx, plant, time, 0.89);
+      }
       ctx.restore();
     },
     destroy() {
       destroyed = true;
       surface.width = surface.height = 1;
       for (const stem of stems) stem.sprite.width = stem.sprite.height = 1;
+      for (const plant of rosettes) plant.sprite.width = plant.sprite.height = 1;
+      rosettes.length = 0;
       blades.length = stems.length = front.length = 0;
     },
   };
