@@ -1,0 +1,13 @@
+# Local dependencies and logs
+node_modules/
+*.log
+
+# Local environment settings
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
