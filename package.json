@@ -3,5 +3,27 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "An immersive, illustrated Canvas 2D betta aquarium with a local-clock day/night cycle. No runtime dependencies."
+  "description": "An immersive, illustrated Canvas 2D betta aquarium with a local-clock day/night cycle.",
+  "packageManager": "npm@11.14.1",
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11.14.1 <12"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "check": "astro check",
+    "test": "vitest run",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@playwright/test": "1.64.1",
+    "astro": "7.3.8",
+    "jsdom": "29.1.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.4"
+  }
 }

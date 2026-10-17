@@ -1,0 +1,73 @@
+name: CI and GitHub Pages
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Check, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: checks-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Use the project's npm version
+        run: npm install --global "$(node -p "require('./package.json').packageManager")" --ignore-scripts --min-release-age=3
+      - name: Install dependencies
+        run: npm ci
+      - name: Check Astro
+        run: npm run check
+      - name: Run unit tests
+        run: npm test
+      - name: Build static site
+        run: npm run build
+      - name: Install Chromium
+        run: npm run test:e2e:install -- --with-deps
+      - name: Test the built site
+        run: npm run test:e2e
+      - name: Ensure generated output is untracked
+        run: |
+          test -z "$(git ls-files dist .astro coverage playwright-report test-results)"
+          git diff --exit-code
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy verified artifact
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

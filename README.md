@@ -4,7 +4,9 @@
 
 ベタの細かな鱗と透けるひれ、大きな葉とシダ、流木、砂利、水泡を Canvas 2D で描く、インタラクティブな水槽です。やわらかな差し込み光と淡い光の粒が、少し幻想的な雰囲気をつくります。
 
-HTML・CSS・JavaScript だけで動作します。ビルドやパッケージのインストールは不要です。
+Astro でビルドする静的サイトです。Node.js 24 と npm を使って開発し、ブラウザ上では HTML・CSS・JavaScript と Canvas 2D で動作します。
+
+公開先: [https://penpenguin.github.io/suiren-aquarium/](https://penpenguin.github.io/suiren-aquarium/)
 
 ## 水景
 
@@ -17,21 +19,61 @@ HTML・CSS・JavaScript だけで動作します。ビルドやパッケージ�
 
 ## ローカルで起動
 
-このリポジトリをダウンロードまたはクローンし、リポジトリのルートで次のコマンドを実行してください。Python 3 を使用します。
+このリポジトリをクローンし、ルートで次のコマンドを実行してください。nvm を使う場合、`.nvmrc` から Node.js 24 系を選択できます。
 
 ```sh
-python3 -m http.server 8080 --directory dist
+nvm install
+nvm use
+npm install --global npm@11.14.1 --ignore-scripts --min-release-age=3
+npm ci
+npm run dev
 ```
 
-Windows で `python3` が見つからない場合は、次のコマンドを使用できます。
+nvm を使わない場合も Node.js 24 と npm 11.14.1 を用意し、`npm ci` 以降を実行してください。
+
+ブラウザで [http://localhost:4321/suiren-aquarium/](http://localhost:4321/suiren-aquarium/) を開きます。停止するときはターミナルで `Ctrl+C` を押してください。
+
+## npm の設定
+
+- `.nvmrc` と `engines` で Node.js 24 系を指定しています。npm は 11.14.1 以上の 11 系をサポートし、`packageManager` と CI の基準版は 11.14.1 です。
+- `.npmrc` の `min-release-age=3` は **日単位** です。依存関係を新しく解決するとき、公開から 3 日経過したバージョンを選びます。
+- `ignore-scripts=true` により、インストール時の lifecycle scripts や `pre` / `post` フックを自動実行しません。開発・ビルド・テストは `npm run ...` で明示的に実行します。
+- `engine-strict=true` により、対応外の Node.js / npm でのインストールを拒否します。
+- `package-lock.json` をコミットし、通常のセットアップと CI では `npm ci` を使います。依存関係を更新するときは、同じ設定のまま `npm install` / `npm update` を実行してロックファイルの差分も確認してください。
+
+## 検証とビルド
+
+| コマンド | 用途 |
+| --- | --- |
+| `npm run dev` | Astro の開発サーバー |
+| `npm run check` | Astro の静的検査 |
+| `npm test` | Vitest + jsdom による照明計算の単体テスト |
+| `npm run build` | `dist/` へ静的サイトを生成 |
+| `npm run preview` | 生成済みのサイトをローカルで確認 |
+| `npm run test:e2e:install` | Playwright 用 Chromium を明示的に導入 |
+| `npm run test:e2e` | 生成済みサイトの描画・餌やり・一時停止を検証 |
+
+コードの変更は、小さな失敗するテストから始め、Red → Green → Refactor の順で進めます。
 
 ```sh
-python -m http.server 8080 --directory dist
+npm run check
+npm test
+npm run build
+npm run test:e2e:install
+npm run test:e2e
 ```
 
-ブラウザで [http://localhost:8080/](http://localhost:8080/) を開きます。停止するときはターミナルで `Ctrl+C` を押してください。
+E2E は Chromium を使い、ビルド済みサイトのプレビューサーバーを自動で起動・終了します。実行前に `npm run build` を実行し、ポート 4321 を空けてください。Linux でブラウザのシステム依存が必要な場合は `npm run test:e2e:install -- --with-deps` を実行します。
 
-JavaScript の ES Modules を使用するため、HTML ファイルの直接起動ではなく、HTTP サーバー経由で開いてください。Python 以外の静的 HTTP サーバーでも `dist/` を配信できます。
+公開後のサイトを確認する場合は、`PLAYWRIGHT_BASE_URL=https://penpenguin.github.io/suiren-aquarium/ npm run test:e2e` で同じテストを実行できます。
+
+## CI と GitHub Pages
+
+GitHub Actions は PR、`main` への push、手動実行で、依存関係のインストール → 静的検査 → 単体テスト → ビルド → E2E の順に検証します。`dist/` などの生成物が追跡されていないことと、検証で追跡ファイルに差分が生じないことも確認します。
+
+`main` の push または `main` を選んだ手動実行では、すべての検証に成功した成果物を `github-pages` 環境へ公開します。PR では検証までを行います。公開用の権限は deploy ジョブに限定し、公式 Actions はコミット SHA で固定しています。
+
+リポジトリの Settings → Pages → Source は **GitHub Actions** を使用します（このリポジトリでは設定済み）。Astro の `site` と `base` は既存の公開先に合わせています。`dist/` をコミットしたり、公開専用ブランチを作成したりする必要はありません。
 
 ## 操作
 
@@ -59,25 +101,28 @@ OS で「動きを減らす」が設定されている場合は、停止した�
 | 17:00〜20:00 | 夕方の暖色を交えて、夜へゆっくり変化 |
 | 20:00〜翌06:00 | 青紫の月明かり |
 
-時計は 15 秒ごとに確認し、光をなめらかに補間します。一時停止中も時刻に合わせて照明を更新し、別のタブから戻った際も時計を読み直します。時間帯を変えたい場合は `dist/lighting.js` を編集してください。
+時計は 15 秒ごとに確認し、光をなめらかに補間します。一時停止中も時刻に合わせて照明を更新し、別のタブから戻った際も時計を読み直します。時間帯を変えたい場合は `src/scripts/lighting.js` を編集してください。
 
 ## 構成
 
 | ファイル | 内容 |
 | --- | --- |
-| `dist/index.html` | 全面水槽と最小限の操作アイコン |
-| `dist/style.css` | 画面全面のレイアウトと操作アイコンの表示 |
-| `dist/app.js` | 遊泳・餌・水泡・水中の光・入力操作 |
-| `dist/lighting.js` | 端末の時刻から昼夜と朝夕の光を計算 |
-| `dist/fish.js` | ベタの体、鱗、半透明のひれの描画 |
-| `dist/aquascape.js` | 砂利、流木、石、水草の描画 |
-| `dist/favicon.svg` | アイコン |
+| `src/pages/index.astro` | 全面水槽と最小限の操作アイコン |
+| `src/styles/style.css` | 画面全面のレイアウトと操作アイコンの表示 |
+| `src/scripts/app.js` | 遊泳・餌・水泡・水中の光・入力操作 |
+| `src/scripts/lighting.js` | 端末の時刻から昼夜と朝夕の光を計算 |
+| `src/scripts/fish.js` | ベタの体、鱗、半透明のひれの描画 |
+| `src/scripts/aquascape.js` | 砂利、流木、石、水草の描画 |
+| `public/favicon.svg` | そのまま配信するアイコン |
+| `astro.config.mjs` | 静的出力・GitHub Pages の公開先設定 |
+| `tests/unit/` / `tests/e2e/` | 単体テストと主要操作のブラウザテスト |
+| `.github/workflows/ci.yml` | 検証と GitHub Pages への公開 |
 
-`dist/` 内のファイルが、そのまま編集・配信できるアプリ本体です。生成用のビルド工程はありません。
+編集するのは `src/` と `public/` です。`dist/` は `npm run build` で再生成する配信用の成果物で、Git 管理から除外しています。`.astro/` やテストのレポートもコミットしません。
 
 ## 軽量な実装
 
-外部ライブラリ、配信フォント、動画、画像のダウンロードは使用しません。背景・砂利・葉・鱗はキャッシュし、毎フレームの描画量を抑えています。
+水槽の描画には外部ランタイムライブラリ、配信フォント、動画、画像のダウンロードを使用しません。Astro やテストツールは開発・ビルド時に使います。背景・砂利・葉・鱗はキャッシュし、毎フレームの描画量を抑えています。
 
 最大 60fps、描画解像度は最大 1.5 倍・約 500 万ピクセルまで。タブが非表示の間はシミュレーションと描画を停止します。餌や光の粒の数にも上限があります。
 
