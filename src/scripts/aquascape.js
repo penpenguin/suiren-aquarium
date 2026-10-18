@@ -1,18 +1,18 @@
+import { getSceneLight, getSurfaceLight } from './lighting.js';
+import { createRandom, leafProfile, createCausticMesh, causticMotion } from './materials.js';
+
 /**
  * A small, deterministic botanical foreground for a Canvas 2D aquarium.
  * All coordinates are CSS pixels; the caller owns the device-pixel transform.
  * Hardscape and textured foliage are cached; a bounded set of plants moves.
  */
-export function createAquascape(width, height, dpr = 1) {
+export function createAquascape(width, height, dpr = 1, daylight = 1) {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
   const scale = Math.min(W / 1500, H / 750);
   const ratio = Math.min(1.5, Math.max(1, dpr));
-  let seed = 872314;
-  const random = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
+  const light = getSceneLight(daylight);
+  const random = createRandom(872314);
   const between = (lo, hi) => lo + (hi - lo) * random();
   const surface = document.createElement('canvas');
   surface.width = Math.ceil(W * ratio);
@@ -46,14 +46,26 @@ export function createAquascape(width, height, dpr = 1) {
         y + Math.sin(angle) * radius * aspect * rough]);
     }
     const warmth = details ? 3 : between(-5, 13);
-    // A small offset contact shadow seats each pebble in its neighbours.
-    ctx.fillStyle = details ? 'rgba(4,17,15,.38)' : 'rgba(8,16,13,.34)';
+    // Broad penumbra beneath large rocks, tight contact beneath small gravel.
+    if (details) {
+      ctx.save();
+      ctx.translate(x - light.x * radius * 0.2, y + radius * aspect * 0.6);
+      ctx.scale(1, aspect * 0.45);
+      const shadow = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius * 1.45);
+      shadow.addColorStop(0, 'rgba(3,16,15,.65)');
+      shadow.addColorStop(0.65, 'rgba(3,16,15,.27)');
+      shadow.addColorStop(1, 'rgba(3,16,15,0)');
+      ctx.fillStyle = shadow;
+      ctx.fillRect(-radius * 1.5, -radius * 1.5, radius * 3, radius * 3);
+      ctx.restore();
+    }
+    ctx.fillStyle = details ? 'rgba(4,17,15,.48)' : 'rgba(8,16,13,.34)';
     ctx.beginPath();
     ctx.ellipse(x + radius * 0.12, y + radius * aspect * 0.61,
       radius * 1.07, radius * aspect * 0.65, 0, 0, Math.PI * 2);
     ctx.fill();
-    const gradient = ctx.createLinearGradient(x - radius * 0.36, y - radius * aspect,
-      x + radius * 0.52, y + radius * aspect);
+    const gradient = ctx.createLinearGradient(x + light.x * radius, y - radius * aspect,
+      x - light.x * radius, y + radius * aspect);
     gradient.addColorStop(0, `rgb(${tone + 43 + warmth},${tone + 43},${tone + 34 - warmth * 0.3})`);
     gradient.addColorStop(0.32, `rgb(${tone + 21 + warmth},${tone + 22},${tone + 13})`);
     gradient.addColorStop(0.66, `rgb(${tone + 1 + warmth * 0.4},${tone + 5},${tone - 2})`);
@@ -65,8 +77,8 @@ export function createAquascape(width, height, dpr = 1) {
     if (!details) return;
     ctx.save();
     ctx.clip();
-    const topLight = ctx.createRadialGradient(x - radius * 0.38, y - radius * aspect * 0.6,
-      0, x - radius * 0.22, y - radius * aspect * 0.4, radius * 1.15);
+    const topLight = ctx.createRadialGradient(x + radius * light.x * 0.8, y - radius * aspect * 0.6,
+      0, x + radius * light.x * 0.45, y - radius * aspect * 0.4, radius * 1.15);
     topLight.addColorStop(0, 'rgba(169,173,146,.23)');
     topLight.addColorStop(0.7, 'rgba(111,125,105,.03)');
     topLight.addColorStop(1, 'rgba(3,16,13,.13)');
@@ -213,7 +225,8 @@ export function createAquascape(width, height, dpr = 1) {
     gradient.addColorStop(0, colors[0]);
     gradient.addColorStop(0.52, colors[1]);
     gradient.addColorStop(1, colors[2]);
-    ctx.globalAlpha = opacity;
+    const alpha = ctx.globalAlpha;
+    ctx.globalAlpha *= opacity * light.ambient;
     ctx.beginPath();
     ctx.moveTo(leaf.x, leaf.y);
     ctx.bezierCurveTo(bendX - half, bendY, upperX - half * 0.5, upperY, tipX, tipY);
@@ -228,7 +241,7 @@ export function createAquascape(width, height, dpr = 1) {
     ctx.moveTo(leaf.x, leaf.y);
     ctx.bezierCurveTo(bendX + half * 0.22, bendY, upperX, upperY, tipX, tipY);
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = alpha;
   }
 
   function leafShape(ctx, x, y, length, breadth, direction, angle, color, kind = 'lance') {
@@ -237,15 +250,14 @@ export function createAquascape(width, height, dpr = 1) {
     ctx.scale(direction, 1);
     ctx.rotate(angle);
     const palette = [
-      ['#102e25', '#3c6942', '#89a95f'],
-      ['#0c302a', '#2f6045', '#74a575'],
-      ['#1c3626', '#5c7742', '#a4b575'],
+      ['#173b2f', '#426e49', '#91aa71'],
+      ['#123a31', '#35634b', '#7c9e78'],
+      ['#253e2c', '#62794b', '#a0ad75'],
     ][color];
     const curl = between(-0.32, 0.21) * breadth;
     const phase = between(0, 6.28);
-    const spine = t => curl * Math.sin(t * Math.PI) - breadth * 0.18 * t;
-    const halfWidth = t => breadth * Math.sin(Math.PI * t) ** (kind === 'oval' ? 0.54 : 0.84)
-      * (1 + Math.sin(t * Math.PI * (kind === 'fern' ? 13 : 5) + phase) * (kind === 'fern' ? 0.065 : 0.029));
+    const spine = t => leafProfile(t, breadth, curl, phase, kind).spine;
+    const halfWidth = t => leafProfile(t, breadth, curl, phase, kind).halfWidth;
     const edges = [];
     for (let j = 0; j <= 18; j++) {
       const t = j / 18;
@@ -255,20 +267,26 @@ export function createAquascape(width, height, dpr = 1) {
       const t = j / 18;
       edges.push([length * t, spine(t) + halfWidth(t) * (0.9 - t * 0.14)]);
     }
-    const gradient = ctx.createLinearGradient(length * 0.35, breadth, length * 0.48, -breadth);
+    const localLight = getSurfaceLight(daylight, angle * direction, direction);
+    const gradient = ctx.createLinearGradient(length * (0.5 - localLight.x * 0.35), -localLight.y * breadth,
+      length * (0.5 + localLight.x * 0.35), localLight.y * breadth);
     gradient.addColorStop(0, palette[0]);
-    gradient.addColorStop(0.47, palette[1]);
-    gradient.addColorStop(0.53, palette[0]);
-    gradient.addColorStop(0.61, palette[1]);
-    gradient.addColorStop(1, palette[2]);
+    gradient.addColorStop(0.42, palette[1]);
+    gradient.addColorStop(0.82, palette[2]);
+    gradient.addColorStop(1, palette[1]);
     ctx.beginPath();
     roundedPath(ctx, edges);
     ctx.fillStyle = gradient;
+    ctx.shadowColor = 'rgba(3,22,17,.26)';
+    ctx.shadowBlur = Math.max(1, 3.5 * scale);
+    ctx.shadowOffsetX = -localLight.x * 2 * scale;
+    ctx.shadowOffsetY = -localLight.y * 3 * scale;
     ctx.fill();
+    ctx.shadowColor = 'transparent';
     ctx.save();
     ctx.clip();
-    const transmitted = ctx.createRadialGradient(length * 0.53, -breadth * 0.35, 0,
-      length * 0.51, -breadth * 0.35, length * 0.62);
+    const transmitted = ctx.createRadialGradient(length * (0.5 + localLight.x * 0.17), localLight.y * breadth * 0.4, 0,
+      length * 0.5, 0, length * 0.62);
     transmitted.addColorStop(0, 'rgba(148,175,95,.13)');
     transmitted.addColorStop(0.65, 'rgba(43,91,49,.03)');
     transmitted.addColorStop(1, 'rgba(0,20,15,.18)');
@@ -305,7 +323,7 @@ export function createAquascape(width, height, dpr = 1) {
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.quadraticCurveTo(length * 0.5, curl * 1.85 - breadth * 0.09, length, spine(1));
-    ctx.strokeStyle = 'rgba(171,192,119,.35)';
+    ctx.strokeStyle = 'rgba(171,192,133,.19)';
     ctx.lineWidth = Math.max(0.45, scale * 0.85);
     ctx.stroke();
     ctx.restore();
@@ -404,7 +422,7 @@ export function createAquascape(width, height, dpr = 1) {
     const x = (j < 24 ? between(-0.035, 0.262) : between(0.762, 1.035)) * W;
     const y = ground(x);
     const h = between(0.17, 0.49) * H;
-    paint.fillStyle = '#365e48';
+    paint.fillStyle = '#527666';
     paint.beginPath();
     paint.moveTo(x, y);
     paint.bezierCurveTo(x - 15 * scale, y - h * 0.55, x - 37 * scale, y - h * 0.9, x - 28 * scale, y - h);
@@ -452,10 +470,12 @@ export function createAquascape(width, height, dpr = 1) {
   for (let j = 0; j < 15600; j++) {
     const x = random() * W, y = between(0.773, 1.025) * H;
     const distance = Math.max(0, Math.min(1.15, (y - ground(x)) / (H - ground(x))));
-    const r = between(0.65 + distance * 0.6, 1.9 + distance * 4.3) * scale;
+    // Mostly fine grains, with occasional larger, partly buried pebbles.
+    const size = random();
+    const r = (0.65 + distance * 0.65 + size ** 2.3 * (2.8 + distance * 5.8)) * scale;
     if (y < ground(x) - r) continue;
     const bankShade = (1 - Math.min(1, Math.abs(x / W - 0.48) / 0.48)) * 10;
-    gravel.push({ x, y, r, tone: Math.floor(between(32, 84) + bankShade), aspect: between(0.47, 0.84) });
+    gravel.push({ x, y, r, tone: Math.floor(between(29, 80) + bankShade), aspect: between(0.32, 0.8) });
   }
   // Draw rear pebbles first, making the overlapping near edge read as depth.
   gravel.sort((a, b) => a.y - b.y);
@@ -498,6 +518,72 @@ export function createAquascape(width, height, dpr = 1) {
     }
   }
 
+  // Cool the cached pigment once, without a full-screen veil over the fish.
+  if (daylight < 1) {
+    for (const canvas of [surface, ...stems.map(stem => stem.sprite), ...rosettes.map(plant => plant.sprite)]) {
+      const c = canvas.getContext('2d');
+      c.save();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.globalCompositeOperation = 'source-atop';
+      c.fillStyle = `rgba(7,25,42,${1 - light.ambient})`;
+      c.fillRect(0, 0, canvas.width, canvas.height);
+      c.restore();
+    }
+  }
+
+  const floorClip = new Path2D();
+  floorClip.moveTo(0, H);
+  for (let x = 0; x <= W; x += W / 80) floorClip.lineTo(x, ground(x));
+  floorClip.lineTo(W, ground(W));
+  floorClip.lineTo(W, H);
+  floorClip.closePath();
+
+  function makeCaustics(seed) {
+    const canvas = document.createElement('canvas');
+    const w = W + 24, h = H * 0.25;
+    const density = 0.65;
+    canvas.width = Math.ceil(w * density);
+    canvas.height = Math.ceil(h * density);
+    const c = canvas.getContext('2d');
+    c.scale(density, density);
+    const mesh = createCausticMesh(18, 5, seed);
+    c.lineWidth = Math.max(0.8, W / 1300);
+    c.lineCap = 'round';
+    c.shadowColor = 'rgba(165,217,188,.5)';
+    c.shadowBlur = 2;
+    for (const [index, [a, b]] of mesh.edges.entries()) {
+      const [ax, ay] = mesh.points[a], [bx, by] = mesh.points[b];
+      const bend = Math.sin(index * 7.3) * 0.24;
+      c.strokeStyle = `rgba(180,225,195,${0.28 + (index % 4) * 0.08})`;
+      c.beginPath();
+      c.moveTo(ax * w, ay * h);
+      c.quadraticCurveTo(((ax + bx) / 2 + (by - ay) * bend * 0.2) * w,
+        ((ay + by) / 2 - (bx - ax) * bend * 3) * h, bx * w, by * h);
+      c.stroke();
+    }
+    c.shadowColor = 'transparent';
+    c.globalCompositeOperation = 'destination-in';
+    const fade = c.createLinearGradient(0, 0, 0, h);
+    fade.addColorStop(0, '#0000'); fade.addColorStop(0.45, '#0009'); fade.addColorStop(1, '#0004');
+    c.fillStyle = fade;
+    c.fillRect(0, 0, w, h);
+    return canvas;
+  }
+  const caustics = [makeCaustics(761), makeCaustics(762)];
+
+  function drawCaustics(ctx, time) {
+    const motion = causticMotion(time);
+    ctx.save();
+    ctx.clip(floorClip);
+    ctx.globalCompositeOperation = 'screen';
+    const alpha = ctx.globalAlpha * (0.12 + daylight * 0.22);
+    ctx.globalAlpha = alpha * (1 - motion.mix);
+    ctx.drawImage(caustics[0], -12 + motion.x * 8, H * 0.76 + motion.y * 3, W + 24, H * 0.25);
+    ctx.globalAlpha = alpha * motion.mix;
+    ctx.drawImage(caustics[1], -12 - motion.x * 7, H * 0.76 - motion.y * 3, W + 24, H * 0.25);
+    ctx.restore();
+  }
+
   let destroyed = false;
   function drawRosette(ctx, plant, time, opacity = 1) {
     ctx.save();
@@ -519,6 +605,7 @@ export function createAquascape(width, height, dpr = 1) {
         drawBlade(ctx, blades[i], time, 0.83);
       }
       ctx.drawImage(surface, 0, 0, W, H);
+      drawCaustics(ctx, time);
       for (const stem of stems) {
         ctx.save();
         ctx.translate(stem.x, stem.y);
@@ -546,6 +633,7 @@ export function createAquascape(width, height, dpr = 1) {
     destroy() {
       destroyed = true;
       surface.width = surface.height = 1;
+      for (const canvas of caustics) canvas.width = canvas.height = 1;
       for (const stem of stems) stem.sprite.width = stem.sprite.height = 1;
       for (const plant of rosettes) plant.sprite.width = plant.sprite.height = 1;
       rosettes.length = 0;
