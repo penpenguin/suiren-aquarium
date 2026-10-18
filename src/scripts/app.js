@@ -1,6 +1,6 @@
 import { drawBetta } from './fish.js';
-import { createAquascape } from './aquascape.js';
-import { getLightCycle } from './lighting.js';
+import { createCyclingAquascape } from './aquascape.js';
+import { getLightCycle, getSceneLight } from './lighting.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('water');
@@ -13,7 +13,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let width = 0, height = 0, dpr = 1, aquascape;
-let dayBackdrop, nightBackdrop, dayBeams, moonBeams, caustics, moteGlow;
+let dayBackdrop, nightBackdrop, dayBeams, moonBeams, moteGlow;
 let elapsed = 0, lastFrame = 0, lastDrawCost = 0;
 let running = false, frameRequest = 0, resizeTimer, controlsTimer;
 let paused = reducedMotion.matches;
@@ -37,15 +37,16 @@ function makeLayer(w, h, ratio = Math.min(dpr, 1)) {
 // Broad pigment-like veils are cached at a modest resolution. Fine detail is
 // reserved for the fish and plants, giving the open water a softer depth.
 function makeBackdrop(isNight) {
+  const light = getSceneLight(isNight ? 0 : 1);
   const [layer, c] = makeLayer(width, height, Math.min(dpr, .65));
   let seed = 4317;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const base = c.createLinearGradient(0, 0, width * .16, height);
-  const colors = isNight ? ['#173c50', '#123643', '#0a2733', '#0c252b'] : ['#48797b', '#285f62', '#17464b', '#193c3b'];
+  const colors = isNight ? ['#173448', '#102e3c', '#0b2632', '#0c252b'] : ['#427575', '#285a5c', '#19484b', '#173a38'];
   colors.forEach((color, i) => base.addColorStop(i / 3, color));
   c.fillStyle = base; c.fillRect(0, 0, width, height);
-  const glow = c.createRadialGradient(width * (isNight ? .68 : .43), -height * .08, 0, width * .5, height * .12, Math.max(width * .64, height * .8));
-  glow.addColorStop(0, isNight ? '#a7b7e25c' : '#e1e8be65');
+  const glow = c.createRadialGradient(width * light.sourceX, -height * .08, 0, width * light.sourceX, height * .12, Math.max(width * .66, height * .8));
+  glow.addColorStop(0, isNight ? '#a7b7e24b' : '#e1e8be68');
   glow.addColorStop(.4, isNight ? '#647faf16' : '#a5d4b72d');
   glow.addColorStop(1, '#76bcb000');
   c.fillStyle = glow; c.fillRect(0, 0, width, height);
@@ -92,23 +93,12 @@ function makeLightLayer(isNight) {
     gradient.addColorStop(.52, `rgba(${isNight ? '139,181,219' : '162,219,191'},${strength * .38})`);
     gradient.addColorStop(1, 'rgba(126,191,185,0)');
     c.fillStyle = gradient;
-    const lean = isNight ? -.16 : -.12;
+    const light = getSceneLight(isNight ? 0 : 1);
+    const lean = -light.x * .3;
     c.beginPath(); c.moveTo(width * x, -30); c.lineTo(width * (x + spread * .45), -30);
     c.lineTo(width * (x + spread + lean), height); c.lineTo(width * (x - spread * .8 + lean), height); c.closePath(); c.fill();
   }
   c.filter = 'none';
-  return layer;
-}
-
-function makeCaustics() {
-  const [layer, c] = makeLayer(width, height, Math.min(dpr, .5));
-  c.filter = 'blur(1.4px)';
-  c.lineWidth = Math.max(.65, width / 1800);
-  for (let i = 0; i < 52; i++) {
-    const x = width * ((i * .618034) % 1), y = height * (.45 + ((i * .38197) % 1) * .5);
-    c.strokeStyle = `rgba(191,232,203,${.15 + (i % 4) * .045})`;
-    c.beginPath(); c.ellipse(x, y, width * (.021 + i % 5 * .007), height * (.007 + i % 3 * .0025), -.2, .15 + i, 4.4 + i); c.stroke();
-  }
   return layer;
 }
 
@@ -136,11 +126,11 @@ function resize() {
   goalUntil = elapsed + 8;
   pellets.forEach(p => { p.x *= width / previousWidth; p.y *= height / previousHeight; });
   ripples.length = 0;
-  aquascape?.destroy?.();
-  aquascape = createAquascape(width, height, dpr);
+  aquascape?.destroy();
+  aquascape = createCyclingAquascape(width, height, dpr);
   dayBackdrop = makeBackdrop(false); nightBackdrop = makeBackdrop(true);
   dayBeams = makeLightLayer(false); moonBeams = makeLightLayer(true);
-  caustics = makeCaustics(); moteGlow = makeMoteGlow();
+  moteGlow = makeMoteGlow();
   bubbles.length = 0; specks.length = 0;
   for (let i = 0; i < 27; i++) bubbles.push(makeBubble(true));
   for (let i = 0; i < 64; i++) specks.push({ x: rand(0, width), y: rand(height * .045, height * .94), radius: rand(.35, 1.25), phase: rand(0, TAU), speed: rand(.65, 2.6), alpha: rand(.1, .3), glow: i % 4 === 0 });
@@ -302,7 +292,7 @@ function drawMotes(front) {
     const shimmer = .63 + Math.sin(elapsed * .38 + p.phase) * .22;
     if (p.glow) {
       const radius = 10 + p.radius * 6;
-      ctx.globalAlpha = p.alpha * shimmer * (.65 + (1 - daylight) * 1.4);
+      ctx.globalAlpha = p.alpha * shimmer * (.65 + (1 - daylight) * .6);
       ctx.drawImage(moteGlow, x - radius, p.y - radius, radius * 2, radius * 2);
     }
     ctx.globalAlpha = 1;
@@ -330,7 +320,7 @@ function render() {
   ctx.drawImage(dayBackdrop, 0, 0, width, height);
   if (daylight < .999) { ctx.globalAlpha = 1 - daylight; ctx.drawImage(nightBackdrop, 0, 0, width, height); ctx.globalAlpha = 1; }
   drawIllumination();
-  aquascape.drawBack(ctx, elapsed, 1);
+  aquascape.drawBack(ctx, elapsed, 1, daylight);
   drawMotes(false);
   drawBubbles();
   ctx.save();
@@ -345,18 +335,12 @@ function render() {
     ctx.fillStyle = '#e4cd9d'; ctx.beginPath(); ctx.ellipse(-.4, -.5, scale, .5 * scale, 0, 0, TAU); ctx.fill(); ctx.restore();
   }
   for (const p of eatSparkles) { ctx.fillStyle = `rgba(211,205,163,${.58 * (1 - p.age / .6)})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); }
-  aquascape.drawFront(ctx, elapsed, 1);
-  // Moonlight tints the whole scene without hiding the plants or the fish.
-  if (daylight < .999) { ctx.fillStyle = `rgba(12,24,55,${(1 - daylight) * .22})`; ctx.fillRect(0, 0, width, height); }
+  aquascape.drawFront(ctx, elapsed, 1, daylight);
   if (twilight > .001) {
     const warm = ctx.createLinearGradient(0, 0, 0, height * .65);
     warm.addColorStop(0, `rgba(215,155,112,${twilight * .17})`); warm.addColorStop(1, 'rgba(194,144,106,0)');
     ctx.fillStyle = warm; ctx.fillRect(0, 0, width, height * .65);
   }
-  ctx.save(); ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = (.11 + daylight * .1) * (.8 + Math.sin(elapsed * .23) * .15);
-  ctx.drawImage(caustics, Math.sin(elapsed * .14) * 8, Math.cos(elapsed * .19) * 3, width, height);
-  ctx.restore();
   drawIllumination(true);
   drawMotes(true);
   for (const r of ripples) {

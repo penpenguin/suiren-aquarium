@@ -9,6 +9,8 @@
  * No external assets, timers, or animation loops.
  */
 
+import { getSurfaceLight } from './lighting.js';
+
 const PI = Math.PI;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const TAIL_SEGMENTS = 42;
@@ -115,13 +117,13 @@ function paintBody(ctx) {
   ctx.save();
   bodyPath(ctx);
   const body = ctx.createLinearGradient(-5, -27, 12, 27);
-  body.addColorStop(0, '#112c44');
-  body.addColorStop(0.18, '#185872');
-  body.addColorStop(0.37, '#388c91');
+  body.addColorStop(0, '#152f47');
+  body.addColorStop(0.18, '#256f85');
+  body.addColorStop(0.37, '#499c9d');
   body.addColorStop(0.53, '#307e96');
   body.addColorStop(0.72, '#194b77');
-  body.addColorStop(0.89, '#132d50');
-  body.addColorStop(1, '#111f39');
+  body.addColorStop(0.89, '#122942');
+  body.addColorStop(1, '#101e30');
   ctx.fillStyle = body;
   ctx.fill();
   ctx.clip();
@@ -142,7 +144,7 @@ function paintBody(ctx) {
       const x = -49 + column * 4.25 + (row % 2) * 2.125 + (noise - 0.5) * 1.1;
       if (x > 37) continue;
       const y = baseY + Math.sin((x + 49) * 0.022) * (baseY + 4) * 0.08 + (randomAt(index + 1817) - 0.5) * 0.8;
-      const light = Math.max(0, 1 - Math.abs(y + 8) / 31) * (0.055 + noise * 0.16);
+      const light = Math.max(0, 1 - Math.abs(y + 8) / 31) * (0.07 + noise * 0.22);
       const width = 2.7 + noise * 0.9;
       const height = 1.35 + randomAt(index + 431) * 0.6;
       ctx.beginPath();
@@ -279,7 +281,7 @@ function getBodyTexture() {
   if (nightContext) {
     nightContext.drawImage(canvas, 0, 0);
     nightContext.globalCompositeOperation = 'source-atop';
-    nightContext.fillStyle = 'rgba(5,16,42,0.28)';
+    nightContext.fillStyle = 'rgba(13,31,58,0.12)';
     nightContext.fillRect(0, 0, width, height);
     nightBodyTexture = night;
   }
@@ -312,31 +314,31 @@ function tailPath(ctx) {
   ctx.closePath();
 }
 
-function drawTail(ctx, phase, activity, detail) {
+function drawTail(ctx, phase, activity, detail, light) {
   makeTail(phase, activity);
   tailPath(ctx);
-  const membrane = ctx.createLinearGradient(-47, 0, -169, 0);
-  membrane.addColorStop(0, 'rgba(10,52,79,0.93)');
-  membrane.addColorStop(0.28, 'rgba(20,88,132,0.82)');
-  membrane.addColorStop(0.59, 'rgba(30,116,147,0.73)');
-  membrane.addColorStop(0.86, 'rgba(53,138,154,0.58)');
-  membrane.addColorStop(1, 'rgba(96,168,181,0.26)');
+  const membrane = ctx.createRadialGradient(-47, 0, 4, -47, 0, 125);
+  membrane.addColorStop(0, 'rgba(10,52,79,0.96)');
+  membrane.addColorStop(0.28, 'rgba(20,88,132,0.88)');
+  membrane.addColorStop(0.59, 'rgba(30,116,147,0.68)');
+  membrane.addColorStop(0.86, 'rgba(69,151,167,0.46)');
+  membrane.addColorStop(1, 'rgba(122,185,192,0.18)');
   ctx.fillStyle = membrane;
   ctx.fill();
 
   ctx.save();
   ctx.clip();
   const wine = ctx.createRadialGradient(-85, 43, 4, -92, 35, 83);
-  wine.addColorStop(0, 'rgba(114,26,65,0.76)');
-  wine.addColorStop(0.45, 'rgba(112,41,91,0.52)');
+  wine.addColorStop(0, 'rgba(114,26,65,0.65)');
+  wine.addColorStop(0.45, 'rgba(112,41,91,0.42)');
   wine.addColorStop(0.79, 'rgba(63,69,128,0.19)');
   wine.addColorStop(1, 'rgba(25,111,147,0)');
   ctx.fillStyle = wine;
   ctx.fillRect(-174, -99, 135, 203);
 
-  const transmitted = ctx.createRadialGradient(-119, -43, 2, -119, -39, 68);
-  transmitted.addColorStop(0, 'rgba(123,187,184,0.24)');
-  transmitted.addColorStop(0.48, 'rgba(86,170,182,0.11)');
+  const transmitted = ctx.createRadialGradient(-112 + light.x * 24, light.y * 48, 2, -112, -31, 78);
+  transmitted.addColorStop(0, 'rgba(153,211,204,0.32)');
+  transmitted.addColorStop(0.48, 'rgba(112,189,197,0.15)');
   transmitted.addColorStop(1, 'rgba(61,126,167,0)');
   ctx.fillStyle = transmitted;
   ctx.fillRect(-177, -100, 139, 205);
@@ -350,7 +352,7 @@ function drawTail(ctx, phase, activity, detail) {
     const bend = Math.sin(phase * 0.91 - u * 6.3) * 4.8;
     const rootY = (u - 0.5) * 12;
     softFold(ctx, -49, rootY, -79, y * 0.21 + bend, x + 29, y * 0.82 + bend,
-      x, y, 6 + randomAt(n + 41) * 6.4, 0.075 + randomAt(n + 93) * 0.07, n % 2 === 0);
+      x, y, 6 + randomAt(n + 41) * 6.4, 0.11 + randomAt(n + 93) * 0.08, n % 2 === 0);
   }
 
   const step = detail < 0.7 ? 2 : 1;
@@ -420,9 +422,9 @@ function drawDorsal(ctx, phase, detail) {
   dorsalPath(ctx, phase);
   const fin = ctx.createLinearGradient(-16, -18, -51, -77);
   fin.addColorStop(0, 'rgba(8,51,78,0.91)');
-  fin.addColorStop(0.39, 'rgba(24,95,126,0.83)');
-  fin.addColorStop(0.73, 'rgba(52,131,145,0.63)');
-  fin.addColorStop(1, 'rgba(102,166,171,0.27)');
+  fin.addColorStop(0.39, 'rgba(24,95,126,0.78)');
+  fin.addColorStop(0.73, 'rgba(63,145,157,0.52)');
+  fin.addColorStop(1, 'rgba(136,188,187,0.19)');
   ctx.fillStyle = fin;
   ctx.fill();
   ctx.save();
@@ -484,9 +486,9 @@ function drawAnal(ctx, phase, detail) {
   const fin = ctx.createLinearGradient(5, 15, -29, 94);
   fin.addColorStop(0, 'rgba(9,48,77,0.95)');
   fin.addColorStop(0.31, 'rgba(24,84,130,0.85)');
-  fin.addColorStop(0.57, 'rgba(70,51,103,0.79)');
-  fin.addColorStop(0.82, 'rgba(116,36,72,0.71)');
-  fin.addColorStop(1, 'rgba(86,123,157,0.41)');
+  fin.addColorStop(0.57, 'rgba(70,51,103,0.71)');
+  fin.addColorStop(0.82, 'rgba(116,36,72,0.55)');
+  fin.addColorStop(1, 'rgba(115,152,177,0.24)');
   ctx.fillStyle = fin;
   ctx.fill();
   ctx.save();
@@ -605,7 +607,7 @@ function drawFrontalBody(ctx, turn, light) {
   ctx.fillStyle = gradient;
   ctx.fill();
   if (light < 1) {
-    ctx.fillStyle = `rgba(5,16,42,${(1 - light) * 0.28})`;
+    ctx.fillStyle = `rgba(13,31,58,${(1 - light) * 0.12})`;
     ctx.fill();
   }
   ctx.fillStyle = 'rgba(4,19,29,0.87)';
@@ -635,6 +637,7 @@ export function drawBetta(ctx, fish, time, detail = 1) {
     tilt = clamp(tilt, -0.36, 0.36);
   }
   const activity = clamp(Math.abs(fish.speed ?? 18) / 54, 0, 1.25);
+  const surfaceLight = getSurfaceLight(light, tilt, turn);
   // Keep phase independent of instantaneous speed: acceleration must never jump the fins.
   const phase = time * 1.68;
   ctx.save();
@@ -648,10 +651,10 @@ export function drawBetta(ctx, fish, time, detail = 1) {
   ctx.save();
   ctx.scale(turn, 1 - (1 - Math.abs(turn)) * 0.035);
   ctx.save();
-  ctx.globalAlpha *= 0.72 + light * 0.28;
+  ctx.globalAlpha *= 0.9 + light * 0.1;
   drawPectoral(ctx, phase, true);
   drawVentral(ctx, phase, true);
-  drawTail(ctx, phase, activity, detail);
+  drawTail(ctx, phase, activity, detail, surfaceLight);
   drawDorsal(ctx, phase, detail);
   drawAnal(ctx, phase, detail);
   ctx.restore();
@@ -675,16 +678,18 @@ export function drawBetta(ctx, fish, time, detail = 1) {
   ctx.save();
   bodyPath(ctx);
   ctx.clip();
-  const glint = ctx.createLinearGradient(-43, -19, 44, 10);
-  const brightness = (0.038 + (Math.sin(phase * 0.51) + 1) * 0.016) * (0.52 + light * 0.48);
-  glint.addColorStop(0, 'rgba(98,191,205,0)');
-  glint.addColorStop(0.44, `rgba(179,228,199,${brightness})`);
+  const glintX = -8 + surfaceLight.x * 38;
+  const glintY = surfaceLight.y * 16;
+  const glint = ctx.createRadialGradient(glintX, glintY, 1, glintX, glintY, 44);
+  const brightness = (0.19 + Math.sin(phase * 0.51) * 0.025) * (0.86 + light * 0.14);
+  glint.addColorStop(0, `rgba(192,236,215,${brightness})`);
+  glint.addColorStop(0.45, `rgba(130,209,213,${brightness * 0.55})`);
   glint.addColorStop(1, 'rgba(86,154,181,0)');
   ctx.fillStyle = glint;
   ctx.fillRect(-58, -31, 121, 60);
   ctx.restore();
   ctx.save();
-  ctx.globalAlpha *= 0.72 + light * 0.28;
+  ctx.globalAlpha *= 0.9 + light * 0.1;
   drawVentral(ctx, phase, false);
   drawPectoral(ctx, phase, false);
   ctx.restore();
