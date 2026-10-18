@@ -1,5 +1,8 @@
 import { getSceneLight, getSurfaceLight } from './lighting.js';
 import { createRandom, leafProfile, createCausticMesh, causticMotion } from './materials.js';
+import { createImageCrossfade } from './crossfade.js';
+
+const materialSets = new WeakMap();
 
 /**
  * A small, deterministic botanical foreground for a Canvas 2D aquarium.
@@ -15,6 +18,7 @@ export function createAquascape(width, height, dpr = 1, daylight = 1) {
   const random = createRandom(872314);
   const between = (lo, hi) => lo + (hi - lo) * random();
   const surface = document.createElement('canvas');
+  let renderedSurface = surface, renderedDaylight = daylight;
   surface.width = Math.ceil(W * ratio);
   surface.height = Math.ceil(H * ratio);
   const paint = surface.getContext('2d', { alpha: true });
@@ -576,7 +580,7 @@ export function createAquascape(width, height, dpr = 1, daylight = 1) {
     ctx.save();
     ctx.clip(floorClip);
     ctx.globalCompositeOperation = 'screen';
-    const alpha = ctx.globalAlpha * (0.12 + daylight * 0.22);
+    const alpha = ctx.globalAlpha * (0.12 + renderedDaylight * 0.22);
     ctx.globalAlpha = alpha * (1 - motion.mix);
     ctx.drawImage(caustics[0], -12 + motion.x * 8, H * 0.76 + motion.y * 3, W + 24, H * 0.25);
     ctx.globalAlpha = alpha * motion.mix;
@@ -593,7 +597,7 @@ export function createAquascape(width, height, dpr = 1, daylight = 1) {
     ctx.drawImage(plant.sprite, -plant.rootX, -plant.rootY, plant.bw, plant.bh);
     ctx.restore();
   }
-  return {
+  const aquascape = {
     drawBack(ctx, time = 0, quality = 1) {
       if (destroyed) return;
       ctx.save();
@@ -604,7 +608,7 @@ export function createAquascape(width, height, dpr = 1, daylight = 1) {
         if (quality < 0.5 && i % 3 === 0) continue;
         drawBlade(ctx, blades[i], time, 0.83);
       }
-      ctx.drawImage(surface, 0, 0, W, H);
+      ctx.drawImage(renderedSurface, 0, 0, W, H);
       drawCaustics(ctx, time);
       for (const stem of stems) {
         ctx.save();
@@ -638,6 +642,53 @@ export function createAquascape(width, height, dpr = 1, daylight = 1) {
       for (const plant of rosettes) plant.sprite.width = plant.sprite.height = 1;
       rosettes.length = 0;
       blades.length = stems.length = front.length = 0;
+    },
+  };
+  materialSets.set(aquascape, {
+    textures: [surface, ...stems.map(stem => stem.sprite), ...rosettes.map(plant => plant.sprite)],
+    apply(textures, value) {
+      renderedSurface = textures[0];
+      stems.forEach((stem, i) => { stem.sprite = textures[1 + i]; });
+      rosettes.forEach((plant, i) => { plant.sprite = textures[1 + stems.length + i]; });
+      renderedDaylight = value;
+      light.ambient = getSceneLight(value).ambient;
+    },
+  });
+  return aquascape;
+}
+
+/** Blend cached materials when lighting changes, then animate one geometry set. */
+export function createCyclingAquascape(width, height, dpr = 1) {
+  const day = createAquascape(width, height, dpr, 1);
+  const night = createAquascape(width, height, dpr, 0);
+  const dayMaterials = materialSets.get(day), nightMaterials = materialSets.get(night);
+  const blends = dayMaterials.textures.map((texture, i) => createImageCrossfade(texture, nightMaterials.textures[i]));
+  let previousWeight, destroyed = false;
+
+  function update(daylight) {
+    // Each step changes an 8-bit channel by less than one level, avoiding needless recoloring.
+    const weight = Math.round(Math.max(0, Math.min(1, daylight)) * 1024) / 1024;
+    if (weight === previousWeight) return;
+    dayMaterials.apply(blends.map(blend => blend.get(weight)), weight);
+    previousWeight = weight;
+  }
+
+  return {
+    drawBack(ctx, time = 0, quality = 1, daylight = 1) {
+      if (destroyed) return;
+      update(daylight);
+      day.drawBack(ctx, time, quality);
+    },
+    drawFront(ctx, time = 0, quality = 1, daylight = 1) {
+      if (destroyed) return;
+      update(daylight);
+      day.drawFront(ctx, time, quality);
+    },
+    destroy() {
+      destroyed = true;
+      dayMaterials.apply(dayMaterials.textures, 1);
+      day.destroy(); night.destroy();
+      blends.forEach(blend => blend.destroy());
     },
   };
 }

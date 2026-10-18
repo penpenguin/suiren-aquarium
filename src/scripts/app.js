@@ -1,5 +1,5 @@
 import { drawBetta } from './fish.js';
-import { createAquascape } from './aquascape.js';
+import { createCyclingAquascape } from './aquascape.js';
 import { getLightCycle, getSceneLight } from './lighting.js';
 
 const $ = (id) => document.getElementById(id);
@@ -12,7 +12,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const rand = (a, b) => a + Math.random() * (b - a);
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-let width = 0, height = 0, dpr = 1, dayAquascape, nightAquascape;
+let width = 0, height = 0, dpr = 1, aquascape;
 let dayBackdrop, nightBackdrop, dayBeams, moonBeams, moteGlow;
 let elapsed = 0, lastFrame = 0, lastDrawCost = 0;
 let running = false, frameRequest = 0, resizeTimer, controlsTimer;
@@ -126,9 +126,8 @@ function resize() {
   goalUntil = elapsed + 8;
   pellets.forEach(p => { p.x *= width / previousWidth; p.y *= height / previousHeight; });
   ripples.length = 0;
-  dayAquascape?.destroy(); nightAquascape?.destroy();
-  dayAquascape = createAquascape(width, height, dpr, 1);
-  nightAquascape = createAquascape(width, height, dpr, 0);
+  aquascape?.destroy();
+  aquascape = createCyclingAquascape(width, height, dpr);
   dayBackdrop = makeBackdrop(false); nightBackdrop = makeBackdrop(true);
   dayBeams = makeLightLayer(false); moonBeams = makeLightLayer(true);
   moteGlow = makeMoteGlow();
@@ -314,21 +313,6 @@ function drawIllumination(front = false) {
   ctx.restore();
 }
 
-function drawAquascape(layer) {
-  if (daylight > 0) {
-    ctx.save();
-    ctx.globalAlpha *= daylight;
-    dayAquascape[layer](ctx, elapsed, 1);
-    ctx.restore();
-  }
-  if (daylight < 1) {
-    ctx.save();
-    ctx.globalAlpha *= 1 - daylight;
-    nightAquascape[layer](ctx, elapsed, 1);
-    ctx.restore();
-  }
-}
-
 function render() {
   if (!width || !dayBackdrop) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -336,7 +320,7 @@ function render() {
   ctx.drawImage(dayBackdrop, 0, 0, width, height);
   if (daylight < .999) { ctx.globalAlpha = 1 - daylight; ctx.drawImage(nightBackdrop, 0, 0, width, height); ctx.globalAlpha = 1; }
   drawIllumination();
-  drawAquascape('drawBack');
+  aquascape.drawBack(ctx, elapsed, 1, daylight);
   drawMotes(false);
   drawBubbles();
   ctx.save();
@@ -351,7 +335,7 @@ function render() {
     ctx.fillStyle = '#e4cd9d'; ctx.beginPath(); ctx.ellipse(-.4, -.5, scale, .5 * scale, 0, 0, TAU); ctx.fill(); ctx.restore();
   }
   for (const p of eatSparkles) { ctx.fillStyle = `rgba(211,205,163,${.58 * (1 - p.age / .6)})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill(); }
-  drawAquascape('drawFront');
+  aquascape.drawFront(ctx, elapsed, 1, daylight);
   if (twilight > .001) {
     const warm = ctx.createLinearGradient(0, 0, 0, height * .65);
     warm.addColorStop(0, `rgba(215,155,112,${twilight * .17})`); warm.addColorStop(1, 'rgba(194,144,106,0)');
