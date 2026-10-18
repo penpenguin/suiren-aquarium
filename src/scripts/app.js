@@ -315,10 +315,15 @@ function drawIllumination(front = false) {
 }
 
 function drawAquascape(layer) {
-  if (daylight > 0.001) dayAquascape[layer](ctx, elapsed, 1);
-  if (daylight < 0.999) {
+  if (daylight > 0) {
     ctx.save();
-    ctx.globalAlpha = 1 - daylight;
+    ctx.globalAlpha *= daylight;
+    dayAquascape[layer](ctx, elapsed, 1);
+    ctx.restore();
+  }
+  if (daylight < 1) {
+    ctx.save();
+    ctx.globalAlpha *= 1 - daylight;
     nightAquascape[layer](ctx, elapsed, 1);
     ctx.restore();
   }
